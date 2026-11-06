@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>tempus florens</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;1,500;1,600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  --night: #0f141b; --pearl: #f4f1ec; --frost: #cfe3f1; --slate: #8fa3b8; --blush: #e6bcc8;
+  --line: rgba(220,232,245,.28);
+  --f-serif: "Cormorant Garamond", "Times New Roman", serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; background: #000; color: var(--pearl); font-family: var(--f-mono); overflow: hidden; }
+#ar { position: fixed; inset: 0; }
+#hud { position: fixed; inset: 0; z-index: 5; pointer-events: none; width: 100%; height: 100%; }
+.mindar-ui-scanning { display: none !important; }
+
+.intro {
+  position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 18px; padding: 24px; text-align: center;
+  background: radial-gradient(120% 80% at 50% 20%, #1c2633 0%, var(--night) 70%);
+}
+.intro h1 { font-family: var(--f-serif); font-style: italic; font-weight: 600; font-size: 54px; margin: 0; letter-spacing: .01em; }
+.intro .sub { font-size: 11px; letter-spacing: .28em; text-transform: uppercase; color: var(--slate); margin: 0; }
+.intro p { margin: 0; color: #c8d3de; line-height: 1.7; max-width: 32ch; font-family: var(--f-serif); font-size: 19px; }
+button {
+  font: inherit; font-size: 12px; letter-spacing: .18em; text-transform: uppercase; cursor: pointer; color: var(--pearl);
+  padding: 12px 22px; border-radius: 0; background: transparent; border: 1px solid var(--line);
+}
+button.main { background: var(--pearl); color: var(--night); border-color: var(--pearl); }
+button:focus-visible { outline: 1px solid var(--frost); outline-offset: 3px; }
+.err { color: #ffc2c2; font-family: var(--f-mono) !important; font-size: 12px !important; }
+
+.tag {
+  position: fixed; z-index: 10; left: 50%; top: calc(env(safe-area-inset-top, 0px) + 18px); transform: translateX(-50%);
+  padding: 8px 14px; background: rgba(15,20,27,.55); border: 1px solid var(--line); backdrop-filter: blur(8px);
+  font-size: 11px; letter-spacing: .18em; text-transform: uppercase; white-space: nowrap; display: flex; gap: 10px; align-items: center;
+}
+.tag b { width: 6px; height: 6px; background: var(--frost); box-shadow: 0 0 8px var(--frost); }
+.tag.ok b { background: var(--blush); box-shadow: 0 0 8px var(--blush); }
+
+.title {
+  position: fixed; z-index: 10; left: 0; right: 0; bottom: calc(env(safe-area-inset-bottom, 0px) + 78px);
+  text-align: center; pointer-events: none; opacity: 0; transform: translateY(8px); transition: opacity 1.6s ease, transform 1.6s ease;
+  text-shadow: 0 2px 24px rgba(10,14,20,.7);
+}
+.title.on { opacity: 1; transform: none; }
+.title .w { font-family: var(--f-serif); font-style: italic; font-weight: 600; font-size: clamp(38px, 9vw, 64px); line-height: 1; }
+.title .c { font-size: 10px; letter-spacing: .3em; text-transform: uppercase; color: #dbe5ee; margin-top: 10px; }
+
+.dock {
+  position: fixed; z-index: 10; left: 0; right: 0; bottom: 0; display: flex; justify-content: center; gap: 8px;
+  padding: 14px max(16px, env(safe-area-inset-left, 0px)) calc(env(safe-area-inset-bottom, 0px) + 18px);
+}
+.dock button { padding: 9px 14px; font-size: 10px; background: rgba(15,20,27,.5); backdrop-filter: blur(8px); }
+</style>
+</head>
+<body>
+<div id="ar"></div>
+<canvas id="hud"></canvas>
+
+<div class="intro" id="intro">
+  <p class="sub">herbarium · no. 01</p>
+  <h1>tempus florens</h1>
+  <p>Hold the specimen card in view.<br>A frozen bouquet will wake and bloom.</p>
+  <button class="main" id="go">Open camera</button>
+  <p class="err" id="err" hidden></p>
+</div>
+
+<div class="tag" id="tag" hidden><b></b><span id="tagText">Searching for specimen</span></div>
+<div class="title" id="title"><div class="w">tempus florens</div><div class="c">No. 01 — the thawing bloom</div></div>
+<div class="dock" id="dock" hidden><button id="replay">↻ Replay</button></div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+  "mindar-image-three": "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { MindARThree } from 'mindar-image-three';
+
+const QR = ["111111101110111110101101001111111", "100000100111111000110110001000001", "101110100111001001111111001011101", "101110101000000011010000001011101", "101110101101000011010111001011101", "100000101100011101001110001000001", "111111101010101010101010101111111", "000000001110001001011111100000000", "100010111011000101001100111111001", "101011011100001101100011010001110", "101110100000111110100011011001010", "001101000101110010001100010000000", "110001110110010010010101101011001", "101000000100011000111001010001100", "011011111100001100101011011000010", "101101010000111111100110011110000", "011100110011000001011100001010010", "101110000010110110100111000001100", "110100101110101101001001110101010", "010101010101110101101101101100011", "001000100110001000111000001111000", "101010011010010011010001010101010", "000000101010011011010001110010010", "001001011100001001111110110010011", "111111100101100111000101111111000", "000000001000101111000101100010110", "111111101000100110101000101011000", "100000100100101110010010100010011", "101110101000110110010010111111000", "101110100101000000111101001110110", "101110100110010101101100101111000", "100000100001111111000101111000000", "111111101111101001010111111001001"];
+const INNER = 0.62;
+
+const C = {
+  pearl: '#f6f2ec', blush: '#efd3dc', ice: '#bfe0f2', iceDeep: '#8ec3e6', stem: '#a7b7ae', gold: '#e8d6a2', dark: '#1d2633',
+};
+
+const clamp01 = x => Math.min(1, Math.max(0, x));
+const eOut = x => 1 - Math.pow(1 - x, 3);
+const eBack = x => { const c1 = 1.4, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); };
+const eInOut = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+let seed = 7;
+const rnd = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+
+function radialTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d'); const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(.4, 'rgba(255,255,255,.45)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+const glowTex = radialTexture();
+
+function petalGeo({ len, wid, cup = .1, curl = 0, round = .5, ruffle = 0, base = .78 }) {
+  const g = new THREE.PlaneGeometry(1, 1, 8, 14);
+  const p = g.attributes.position; const col = [];
+  for (let i = 0; i < p.count; i++) {
+    const u = p.getX(i) * 2, v = p.getY(i) + .5;
+    const w = Math.pow(Math.max(0, Math.sin(Math.PI * Math.pow(v, .72))), round);
+    p.setXYZ(i, u * wid * .5 * w, v * len, cup * u * u * w * wid * .5 + curl * v * v * len + ruffle * Math.sin(u * 7 + v * 9) * v * .035);
+    const c = base + (1 - base) * Math.pow(v, .5);
+    col.push(c, c, c);
+  }
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.computeVertexNormals();
+  return g;
+}
+
+// angles in degrees = direction each petal points in the flower's face plane
+const TYPES = {
+  lily: { center: .05, stamens: true, label: 'LILIUM CANDIDUM', layers: [
+    { angles: [0, 60, 120, 180, 240, 300], len: 1.0, wid: .3, cup: .16, curl: -.36, round: 1, open: .2, delay: 0, tint: 'pearl' } ] },
+  orchid: { center: .06, label: 'PHALAENOPSIS AMABILIS', layers: [
+    { angles: [90, 210, 330], len: .66, wid: .26, cup: .1, curl: -.06, round: .75, open: .06, delay: 0, tint: 'pearl' },
+    { angles: [30, 150], len: .56, wid: .6, cup: .16, curl: -.03, round: .42, open: .1, delay: .1, tint: 'pearl' },
+    { angles: [270], len: .36, wid: .32, cup: .55, curl: .25, round: .5, open: .55, delay: .25, tint: 'blush' } ] },
+  peony: { center: .08, label: 'PAEONIA LACTIFLORA', layers: [
+    { n: 10, len: .7, wid: .48, cup: .24, curl: .02, round: .42, ruffle: 1, open: .32, delay: 0, tint: 'pearl' },
+    { n: 8, len: .56, wid: .44, cup: .3, curl: .08, round: .42, ruffle: 1, open: .72, delay: .16, tint: 'pearl' },
+    { n: 6, len: .42, wid: .38, cup: .36, curl: .14, round: .42, ruffle: 1, open: 1.08, delay: .32, tint: 'blush' } ] },
+};
+
+let envMap = null;
+const geoCache = new Map();
+const getPetal = (k, spec) => { if (!geoCache.has(k)) geoCache.set(k, petalGeo(spec)); return geoCache.get(k); };
+const matCache = new Map();
+function pearlMat(tint) {
+  if (!matCache.has(tint)) matCache.set(tint, new THREE.MeshPhysicalMaterial({
+    color: C[tint], vertexColors: true, side: THREE.DoubleSide, roughness: .38,
+    sheen: 1, sheenRoughness: .45, sheenColor: new THREE.Color('#ffeef3'),
+    clearcoat: .35, clearcoatRoughness: .3, iridescence: .45, iridescenceIOR: 1.35,
+    emissive: C[tint], emissiveIntensity: .06,
+  }));
+  return matCache.get(tint);
+}
+
+function makeFlower(type, matOverride) {
+  const T = TYPES[type]; const head = new THREE.Group(); const petals = [];
+  T.layers.forEach((L, li) => {
+    const geo = getPetal(type + li, L);
+    const mat = matOverride || pearlMat(L.tint);
+    const angs = L.angles ? L.angles.map(a => (a - 90) * Math.PI / 180) : Array.from({ length: L.n }, (_, j) => (j / L.n) * Math.PI * 2 + li * Math.PI / L.n);
+    angs.forEach(a => {
+      const pivot = new THREE.Object3D(); pivot.rotation.z = a + (rnd() - .5) * .12;
+      const m = new THREE.Mesh(geo, mat); m.scale.setScalar(.92 + rnd() * .16);
+      pivot.add(m); head.add(pivot);
+      petals.push({ m, open: L.open + (rnd() - .5) * .1, delay: L.delay + rnd() * .08 });
+    });
+  });
+  const cMat = new THREE.MeshStandardMaterial({ color: C.gold, emissive: C.gold, emissiveIntensity: .5, roughness: .6 });
+  const c = new THREE.Mesh(new THREE.SphereGeometry(T.center, 14, 10), cMat); c.scale.z = .55; head.add(c);
+  if (T.stamens) for (let k = 0; k < 6; k++) {
+    const a = k / 6 * Math.PI * 2;
+    const st = new THREE.Mesh(new THREE.SphereGeometry(.03, 8, 6), cMat);
+    st.position.set(Math.cos(a) * .12, Math.sin(a) * .12, .44); head.add(st);
+  }
+  return { head, petals };
+}
+
+function makePuff() {
+  const N = 90, pos = [], tips = [], dirs = [];
+  for (let i = 0; i < N; i++) {
+    const y = 1 - (i + .5) / N * 2, r = Math.sqrt(1 - y * y), th = i * 2.39996;
+    const d = new THREE.Vector3(Math.cos(th) * r, y, Math.sin(th) * r);
+    dirs.push(d); pos.push(0, 0, 0, d.x * .34, d.y * .34, d.z * .34); tips.push(d.x * .36, d.y * .36, d.z * .36);
+  }
+  const head = new THREE.Group();
+  const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  const lines = new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: '#f4f7fa', transparent: true, opacity: .75 }));
+  const tg = new THREE.BufferGeometry(); tg.setAttribute('position', new THREE.Float32BufferAttribute(tips, 3));
+  const dots = new THREE.Points(tg, new THREE.PointsMaterial({ map: glowTex, color: '#ffffff', size: .09, transparent: true, depthWrite: false }));
+  const core = new THREE.Mesh(new THREE.SphereGeometry(.06, 10, 8), new THREE.MeshStandardMaterial({ color: '#d9d2c3', roughness: .9 }));
+  head.add(lines, dots, core);
+  return { head, lines, dots, dirs };
+}
+
+// ---------- QR geometry (3-module margin inside the white mount, same as the poster) ----------
+const N = QR.length, BOARD = 7, CELL = BOARD / (N + 6);
+const modules = [];
+for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) if (QR[r][c] === '1')
+  modules.push(new THREE.Vector3((c - (N - 1) / 2) * CELL, -(r - (N - 1) / 2) * CELL, 0));
+
+// ---------- AR setup ----------
+const mindar = new MindARThree({
+  container: document.getElementById('ar'), imageTargetSrc: './targets.mind',
+  uiScanning: 'no', uiLoading: 'yes', uiError: 'yes', filterMinCF: 0.0005, filterBeta: 0.01,
+});
+const { renderer, scene, camera } = mindar;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+envMap = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), .04).texture;
+scene.environment = envMap;
+scene.add(new THREE.HemisphereLight('#f4f8ff', '#3b4552', .9));
+const key = new THREE.DirectionalLight('#ffffff', 1.8); key.position.set(.4, .7, 1); scene.add(key);
+const rim = new THREE.DirectionalLight('#a9cfff', 1.1); rim.position.set(-.7, -.2, .5); scene.add(rim);
+
+const anchor = mindar.addAnchor(0);
+const world = new THREE.Group(); world.scale.setScalar(INNER / BOARD); anchor.group.add(world);
+
+let S = null;
+function build() {
+  while (world.children.length) world.remove(world.children[0]);
+  seed = 23;
+  S = { flowers: [], puffs: [], specimens: [] };
+
+  const boardMat = new THREE.MeshBasicMaterial({ color: '#ffffff', toneMapped: false });
+  const board = new THREE.Mesh(new THREE.PlaneGeometry(BOARD, BOARD), boardMat);
+  board.position.z = .002; board.visible = false; world.add(board); Object.assign(S, { board, boardMat });
+
+  // ice modules
+  const iceMat = new THREE.MeshPhysicalMaterial({ color: '#ffffff', roughness: .06, clearcoat: 1, iridescence: .7, iridescenceIOR: 1.3, transparent: true, opacity: 1 });
+  const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(CELL, CELL, .1), iceMat, modules.length);
+  const maxD = BOARD * .5;
+  S.mods = modules.map(p => ({ p, d: p.length() / maxD, rise: 1.2 + rnd() * 2.4, rx: (rnd() - .5) * 5, ry: (rnd() - .5) * 5, drift: new THREE.Vector2((rnd() - .5) * .9, (rnd() - .5) * .9) }));
+  S.dark = new THREE.Color(C.dark); S.iceC = new THREE.Color(C.ice);
+  S.mods.forEach((m, i) => inst.setColorAt(i, S.dark));
+  inst.visible = false; world.add(inst); Object.assign(S, { inst, iceMat });
+
+  // scan line
+  const scanMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.4, 1.7, 2.0), transparent: true, opacity: 0, toneMapped: false, blending: THREE.AdditiveBlending, depthWrite: false });
+  const scan = new THREE.Mesh(new THREE.PlaneGeometry(BOARD * 1.06, .04), scanMat); scan.position.z = .3; world.add(scan);
+  const scanGlowMat = new THREE.MeshBasicMaterial({ map: glowTex, color: '#cfe3f1', transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
+  const scanGlow = new THREE.Mesh(new THREE.PlaneGeometry(BOARD * 1.2, .8), scanGlowMat); scanGlow.position.z = .28; world.add(scanGlow);
+  Object.assign(S, { scan, scanMat, scanGlow, scanGlowMat });
+
+  // flower sites
+  const picks = [];
+  const order = S.mods.map((m, i) => i).sort(() => rnd() - .5);
+  for (const i of order) {
+    const p = S.mods[i].p;
+    if (p.length() < 1.3) continue;
+    if (picks.every(j => S.mods[j].p.distanceTo(p) > 1.15)) picks.push(i);
+    if (picks.length >= 18) break;
+  }
+  const kinds = ['lily', 'orchid', 'lily', 'puff', 'orchid', 'lily'];
+  const stemMat = new THREE.MeshStandardMaterial({ color: C.stem, roughness: .65 });
+  const leafGeo = petalGeo({ len: .6, wid: .2, cup: .2, curl: .15, round: .8, base: .7 });
+  const leafMat = new THREE.MeshStandardMaterial({ color: C.stem, vertexColors: true, side: THREE.DoubleSide, roughness: .55 });
+  let labelled = 0;
+  picks.forEach((i, k) => {
+    const base = S.mods[i].p.clone(); base.z = .05;
+    const out = base.clone().setZ(0).normalize();
+    const L = 1.4 + rnd() * 2.0, spread = .3 + rnd() * .5;
+    const end = base.clone().add(new THREE.Vector3(out.x * spread, out.y * spread, L));
+    const mid = base.clone().lerp(end, .5).add(new THREE.Vector3((rnd() - .5) * .5, (rnd() - .5) * .5, 0));
+    const curve = new THREE.CatmullRomCurve3([base, base.clone().add(new THREE.Vector3(0, 0, L * .2)), mid, end]);
+    const SEG = 24, RAD = 6;
+    const stem = new THREE.Mesh(new THREE.TubeGeometry(curve, SEG, .024 + rnd() * .01, RAD, false), stemMat);
+    stem.geometry.setDrawRange(0, 0); world.add(stem);
+    const leaf = new THREE.Mesh(leafGeo, leafMat);
+    leaf.position.copy(curve.getPoint(.4));
+    leaf.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(out.x + (rnd() - .5), out.y + (rnd() - .5), .7).normalize());
+    leaf.scale.setScalar(0); world.add(leaf);
+
+    const kind = kinds[k % kinds.length];
+    let head, petals = [], puff = null;
+    if (kind === 'puff') { puff = makePuff(); head = puff.head; }
+    else ({ head, petals } = makeFlower(kind));
+    head.position.copy(end);
+    head.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), curve.getTangent(1).lerp(new THREE.Vector3(0, 0, 1), .4).normalize());
+    head.scale.setScalar(0); world.add(head);
+    const f = { kind, stem, SEG, RAD, leaf, head, petals, puff, sz: (kind === 'puff' ? 1.1 : .95) * (.8 + rnd() * .4), t0: 2.0 + S.mods[i].d * 1.1 + rnd() * .3, ph: rnd() * 6, baseQ: head.quaternion.clone(), end };
+    S.flowers.push(f);
+    if (puff) S.puffs.push(f);
+    if (labelled < 7 && (k % 2 === 0 || kind === 'puff')) {
+      labelled++;
+      S.specimens.push({ obj: head, r: .75 * f.sz, name: kind === 'puff' ? 'TARAXACUM OFFICINALE' : TYPES[kind].label, t0: f.t0 + 1.4, conf: .9 + rnd() * .09, id: S.specimens.length + 1 });
+    }
+  });
+
+  // frozen peony — thaws
+  const heroMat = new THREE.MeshPhysicalMaterial({
+    color: C.ice, vertexColors: true, side: THREE.DoubleSide, roughness: .05, transparent: true, opacity: .62,
+    clearcoat: 1, clearcoatRoughness: .05, iridescence: .9, iridescenceIOR: 1.3, sheen: 0, sheenColor: new THREE.Color('#ffe9ef'),
+    emissive: C.iceDeep, emissiveIntensity: .35, depthWrite: false,
+  });
+  const { head, petals } = makeFlower('peony', heroMat);
+  const outer = getPetal('heroOuter', { len: .95, wid: .5, cup: .18, curl: -.05, round: .45, ruffle: 1 });
+  for (let j = 0; j < 12; j++) {
+    const pv = new THREE.Object3D(); pv.rotation.z = j / 12 * Math.PI * 2 + .13;
+    const m = new THREE.Mesh(outer, heroMat); pv.add(m); head.add(pv);
+    petals.push({ m, open: -.05 + rnd() * .08, delay: -.12 });
+  }
+  head.position.set(0, 0, 1.5); head.scale.setScalar(0); world.add(head);
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: C.ice, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
+  glow.position.set(0, 0, 1.3); glow.scale.setScalar(0); world.add(glow);
+  S.hero = { head, petals, mat: heroMat, glow, t0: 4.4 };
+  S.specimens.push({ obj: head, r: 1.7, name: 'PAEONIA — FROZEN', t0: 5.0, conf: .99, id: 0, hero: true });
+
+  // dandelion seeds released later
+  const seeds = [];
+  S.puffs.forEach(f => f.puff.dirs.forEach(d => seeds.push({ f, d, rt: 7.2 + rnd() * 1.6, sp: .4 + rnd() * .6, wob: rnd() * 6 })));
+  const sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(seeds.length * 3), 3));
+  S.seedPts = new THREE.Points(sg, new THREE.PointsMaterial({ map: glowTex, color: '#ffffff', size: .14, transparent: true, depthWrite: false, opacity: 0 }));
+  S.seedPts.frustumCulled = false; world.add(S.seedPts); S.seeds = seeds;
+
+  // snow
+  const SN = 420, sp = new Float32Array(SN * 3);
+  S.snow = [];
+  for (let i = 0; i < SN; i++) S.snow.push({ x: (rnd() - .5) * 14, y: (rnd() - .5) * 14, z: rnd() * 7, v: .25 + rnd() * .45, w: rnd() * 6 });
+  const snG = new THREE.BufferGeometry(); snG.setAttribute('position', new THREE.BufferAttribute(sp, 3));
+  S.snowPts = new THREE.Points(snG, new THREE.PointsMaterial({ map: glowTex, color: '#ffffff', size: .16, transparent: true, depthWrite: false, opacity: 0 }));
+  S.snowPts.frustumCulled = false; world.add(S.snowPts);
+}
+
+const dummy = new THREE.Object3D(), tmpC = new THREE.Color(), tmpV = new THREE.Vector3();
+const titleEl = document.getElementById('title');
+function update(T) {
+  // scan
+  const sp = clamp01(T / 1.2), scanOn = T < 1.4 ? Math.sin(Math.PI * clamp01(T / 1.4)) : 0;
+  S.scan.position.y = BOARD * .5 - sp * BOARD; S.scanGlow.position.y = S.scan.position.y;
+  S.scanMat.opacity = scanOn; S.scanGlowMat.opacity = scanOn * .6;
+  const on = T > 1.25; S.board.visible = on; S.inst.visible = on;
+  S.boardMat.color.set('#ffffff').lerp(tmpC.set('#141c27'), eInOut(clamp01((T - 2.2) / 1.8)));
+
+  // QR modules freeze into ice, lift, shatter
+  S.mods.forEach((m, i) => {
+    const fr = clamp01((T - 1.25 - m.d * .5) / .5);
+    const p = clamp01((T - 1.8 - m.d * .9) / 1.4), e = eOut(p);
+    dummy.position.set(m.p.x + m.drift.x * e, m.p.y + m.drift.y * e, .05 + e * m.rise);
+    dummy.rotation.set(m.rx * e, m.ry * e, 0);
+    dummy.scale.setScalar(Math.max(p < .5 ? 1 : 1 - eInOut((p - .5) / .5), .0001));
+    dummy.updateMatrix(); S.inst.setMatrixAt(i, dummy.matrix);
+    tmpC.copy(S.dark).lerp(S.iceC, fr); S.inst.setColorAt(i, tmpC);
+  });
+  S.inst.instanceMatrix.needsUpdate = true; S.inst.instanceColor.needsUpdate = true;
+
+  // flowers
+  S.flowers.forEach(f => {
+    const g = clamp01((T - f.t0) / 1.2);
+    f.stem.geometry.setDrawRange(0, Math.floor(eOut(g) * f.SEG) * f.RAD * 6);
+    f.leaf.scale.setScalar(eBack(clamp01((T - f.t0 - .4) / .8)) * .9);
+    const b = T - f.t0 - .9;
+    f.head.scale.setScalar(Math.max(eBack(clamp01(b / .8)) * f.sz, .0001));
+    f.petals.forEach(pt => { pt.m.rotation.x = 1.45 + (pt.open - 1.45) * eBack(clamp01((b - pt.delay) / 1.7)); });
+    f.head.quaternion.copy(f.baseQ);
+    if (f.kind !== 'puff') f.head.rotateZ(T * .08 + f.ph);
+    f.head.rotateX(Math.sin(T * 1.1 + f.ph) * clamp01(b) * .05);
+  });
+
+  // frozen peony → thaw
+  const H = S.hero, hb = T - H.t0;
+  H.head.scale.setScalar(Math.max(eBack(clamp01(hb / 1.1)) * 1.85, .0001));
+  H.head.rotation.z = T * .07;
+  const th = eInOut(clamp01((T - 6.0) / 3.2));
+  H.petals.forEach(pt => {
+    const o = .45 * eOut(clamp01((hb - .2 - pt.delay) / 1.2)) + .55 * eBack(clamp01((T - 6.0 - pt.delay * 2) / 2.6));
+    pt.m.rotation.x = 1.45 + (pt.open - 1.45) * o;
+  });
+  H.mat.color.set(C.ice).lerp(tmpC.set('#f7ede9'), th);
+  H.mat.emissive.set(C.iceDeep).lerp(tmpC.set('#f3d6de'), th);
+  H.mat.emissiveIntensity = .35 - .27 * th;
+  H.mat.opacity = .62 + .38 * th;
+  H.mat.roughness = .05 + .33 * th;
+  H.mat.iridescence = .9 - .45 * th;
+  H.mat.sheen = th;
+  H.mat.depthWrite = th > .9;
+  const gl = clamp01(hb / 1.2);
+  H.glow.material.color.set(C.ice).lerp(tmpC.set('#ffd9e2'), th);
+  H.glow.material.opacity = gl * (.35 + .08 * Math.sin(T * 1.6));
+  H.glow.scale.setScalar(gl * (3.8 + th * 1.2));
+  S.specimens[S.specimens.length - 1].name = th > .6 ? 'PAEONIA LACTIFLORA — THAWED' : (th > .02 ? 'PAEONIA — THAWING ' + Math.round(th * 100) + '%' : 'PAEONIA — FROZEN');
+
+  // dandelion release
+  const pos = S.seedPts.geometry.attributes.position;
+  let anySeed = 0;
+  S.seeds.forEach((s, i) => {
+    const t = T - s.rt;
+    s.f.head.updateMatrix();
+    tmpV.copy(s.d).multiplyScalar(.36).applyMatrix4(s.f.head.matrix);
+    if (t > 0) {
+      anySeed = 1;
+      const tt = t * s.sp;
+      tmpV.x += s.d.x * tt * .5 + tt * .9; tmpV.y += s.d.y * tt * .5 + tt * .45 + Math.sin(t * 2 + s.wob) * .15; tmpV.z += s.d.z * tt * .5 + tt * .6;
+    } else tmpV.set(0, 0, -50);
+    pos.setXYZ(i, tmpV.x, tmpV.y, tmpV.z);
+  });
+  pos.needsUpdate = true;
+  S.seedPts.material.opacity = anySeed ? .95 : 0;
+  S.puffs.forEach(f => { const r = clamp01((T - 7.2) / 1.6); f.puff.lines.material.opacity = .75 * (1 - r); f.puff.dots.material.opacity = 1 - r; });
+
+  // snow
+  const sn = S.snowPts.geometry.attributes.position;
+  S.snow.forEach((s, i) => {
+    let y = s.y - T * s.v; y = ((y + 7) % 14 + 14) % 14 - 7;
+    sn.setXYZ(i, s.x + Math.sin(T * .6 + s.w) * .3, y, s.z);
+  });
+  sn.needsUpdate = true;
+  S.snowPts.material.opacity = clamp01((T - 1.3) / 2) * .9;
+
+  titleEl.classList.toggle('on', T > 8.8);
+}
+
+// ---------- analytic HUD ----------
+const hud = document.getElementById('hud'), hx = hud.getContext('2d');
+function sizeHud() { const d = Math.min(devicePixelRatio, 2); hud.width = innerWidth * d; hud.height = innerHeight * d; hx.setTransform(d, 0, 0, d, 0, 0); }
+addEventListener('resize', sizeHud); sizeHud();
+const camUp = new THREE.Vector3(), wp = new THREE.Vector3(), wq = new THREE.Vector3();
+function drawHud(T) {
+  hx.clearRect(0, 0, innerWidth, innerHeight);
+  if (!S || !anchor.group.visible) return;
+  const W = innerWidth, Hh = innerHeight;
+  camUp.set(0, 1, 0).applyQuaternion(camera.quaternion);
+  const pts = [];
+  hx.font = '500 10px "IBM Plex Mono", ui-monospace, monospace';
+  hx.textBaseline = 'bottom';
+  S.specimens.forEach(sp => {
+    const a = clamp01((T - sp.t0) / .6); if (a <= 0) return;
+    sp.obj.getWorldPosition(wp);
+    const wscale = anchor.group.matrixWorld.getMaxScaleOnAxis() * world.scale.x;
+    wq.copy(wp).addScaledVector(camUp, sp.r * wscale);
+    wp.project(camera); wq.project(camera);
+    if (wp.z > 1) return;
+    const x = (wp.x + 1) / 2 * W, y = (1 - wp.y) / 2 * Hh;
+    const r = Math.max(18, Math.abs((1 - wq.y) / 2 * Hh - y));
+    pts.push([x, y, a]);
+    const col = sp.hero ? '255,214,226' : '214,232,246';
+    hx.strokeStyle = `rgba(${col},${.9 * a})`; hx.fillStyle = `rgba(${col},${a})`; hx.lineWidth = 1.2;
+    const k = r * .28, L = x - r, R = x + r, Tp = y - r, B = y + r;
+    hx.beginPath();
+    hx.moveTo(L, Tp + k); hx.lineTo(L, Tp); hx.lineTo(L + k, Tp);
+    hx.moveTo(R - k, Tp); hx.lineTo(R, Tp); hx.lineTo(R, Tp + k);
+    hx.moveTo(L, B - k); hx.lineTo(L, B); hx.lineTo(L + k, B);
+    hx.moveTo(R - k, B); hx.lineTo(R, B); hx.lineTo(R, B - k);
+    hx.stroke();
+    hx.beginPath(); hx.arc(x, y, 1.6, 0, Math.PI * 2); hx.fill();
+    const conf = (sp.conf + Math.sin(T * 3 + sp.id) * .004).toFixed(3);
+    const tag = (sp.hero ? '◆ ' : String(sp.id).padStart(2, '0') + ' ') + sp.name;
+    const sub = `conf ${conf}  x${(x / W).toFixed(2)} y${(y / Hh).toFixed(2)}`;
+    hx.fillStyle = `rgba(16,22,30,${.72 * a})`;
+    hx.fillRect(L - 1, Tp - 17, hx.measureText(tag).width + 10, 15);
+    hx.fillRect(L - 1, B + 2, hx.measureText(sub).width + 10, 14);
+    hx.fillStyle = `rgba(${col},${a})`;
+    hx.fillText(tag, L + 4, Tp - 4);
+    hx.globalAlpha = .8 * a;
+    hx.fillText(sub, L + 4, B + 14);
+    hx.globalAlpha = 1;
+  });
+  if (pts.length > 1) {
+    hx.setLineDash([2, 4]); hx.strokeStyle = 'rgba(214,232,246,.55)'; hx.beginPath();
+    pts.forEach(([x, y], i) => i ? hx.lineTo(x, y) : hx.moveTo(x, y)); hx.stroke(); hx.setLineDash([]);
+  }
+}
+
+// ---------- UI / loop ----------
+const tag = document.getElementById('tag'), tagText = document.getElementById('tagText');
+let tStart = null, tracking = false;
+function setTag(txt, ok) { tagText.textContent = txt; tag.classList.toggle('ok', ok); }
+anchor.onTargetFound = () => { tracking = true; if (tStart === null) tStart = performance.now(); setTag('Specimen detected · No. 01', true); };
+anchor.onTargetLost = () => { tracking = false; setTag('Searching for specimen', false); };
+document.getElementById('replay').addEventListener('click', () => { build(); titleEl.classList.remove('on'); tStart = tracking ? performance.now() : null; });
+
+build();
+document.getElementById('go').addEventListener('click', async () => {
+  const err = document.getElementById('err'), go = document.getElementById('go');
+  try {
+    const chk = await fetch('./targets.mind', { method: 'HEAD', cache: 'no-store' });
+    if (!chk.ok) { err.hidden = false; err.textContent = 'targets.mind not found — upload it next to index.html.'; return; }
+    go.textContent = 'Preparing camera…';
+    await mindar.start();
+    document.getElementById('intro').hidden = true;
+    tag.hidden = false; document.getElementById('dock').hidden = false;
+    renderer.setAnimationLoop(() => {
+      const T = tStart === null ? -1 : (performance.now() - tStart) / 1000;
+      if (T >= 0) update(T);
+      renderer.render(scene, camera);
+      drawHud(T);
+    });
+  } catch (e) {
+    go.textContent = 'Open camera';
+    err.hidden = false; err.textContent = 'Camera unavailable. Allow camera access in your browser settings, then reload.';
+    console.error(e);
+  }
+});
+</script>
+</body>
+</html>
