@@ -28,7 +28,7 @@ button:focus-visible { outline: 1px solid var(--ink); outline-offset: 3px; }
 <div id="ar"></div>
 <div class="intro" id="intro">
   <div class="wm">te<i>m</i>pus flore<i>n</i>s</div>
-  <p>Hold the postcard in view<br>and let the lily unfold</p>
+  <p>Hold the postcard in view<br>and watch the orchids wake</p>
   <button id="go">Open camera</button>
   <p class="err" id="err" hidden></p>
 </div>
@@ -46,38 +46,21 @@ button:focus-visible { outline: 1px solid var(--ink); outline-offset: 3px; }
 import * as THREE from 'three';
 import { MindARThree } from 'mindar-image-three';
 
-// ---------- look ----------
-const LOOK = {
-  body: [0.36, 0.38, 0.43],     // soft blurred bloom behind the glyphs
-  light: [0.98, 0.95, 0.86],    // drifting light inside the bloom
-  ink: [1.0, 0.99, 0.95],       // glyph colour
-  cols: 84,                     // glyph columns across the screen width
-};
+// ---------- postcard → anchor (trim 2126 × 1417 @300dpi; anchor width = 1) ----------
+const CW = 2126, CH = 1417, ASPECT = CH / CW;
+const OX = 21.554, OY = 122.605, SC = 1.247;            // orchid artwork → postcard pixels
+const ATLAS = { w: 1672, y0: 280, h: 320 };             // orchids.png covers rows 280–600 of the artwork
+const toA = (ix, iy) => [(OX + SC * ix) / CW - .5, (.5 - (OY + SC * iy) / CH) * ASPECT];
 
-// ---------- postcard geometry (8000 × 5419 artwork; anchor width = 1) ----------
-const PW = 8000, PH = 5419, ASPECT = PH / PW;
-const BOX = [1443, 475, 6644, 4610];
-const toA = (px, py) => [px / PW - .5, (.5 - py / PH) * ASPECT];
-const [bx0, by1] = toA(BOX[0], BOX[1]), [bx1, by0] = toA(BOX[2], BOX[3]);
-const CENTER = [(bx0 + bx1) / 2, (by0 + by1) / 2];
-
-// the lily — same petals as the printed graphic
-const OPEN = [], LEN = [], WID = [];
-for (let k = 0; k < 6; k++) { const o = k % 2 === 0; LEN.push(o ? 1.02 : .96); WID.push(o ? .36 : .47); OPEN.push(o ? .42 : .5); }
-function petalJS(u, v, k, th) {
-  const w = Math.pow(Math.max(0, Math.sin(Math.PI * Math.pow(v, .62))), .85);
-  const x = u * WID[k] * .5 * w, y = v * LEN[k] + .04, z = .32 * u * u * w * WID[k] * .5 - .38 * v * v * LEN[k];
-  const ct = Math.cos(th), st = Math.sin(th), y1 = y * ct - z * st, z1 = y * st + z * ct;
-  const ph = (k * 60 + 15) * Math.PI / 180, cp = Math.cos(ph), sp = Math.sin(ph); return [x * cp - y1 * sp, x * sp + y1 * cp, z1];
-}
-const TX = -.42, TZ = .18;
-function printXY(p) { const [x, y, z] = p; const y1 = y * Math.cos(TX) - z * Math.sin(TX); return [x * Math.cos(TZ) - y1 * Math.sin(TZ), x * Math.sin(TZ) + y1 * Math.cos(TZ)]; }
-let fx0 = 1e9, fx1 = -1e9, fy0 = 1e9, fy1 = -1e9;
-for (let k = 0; k < 6; k++) for (let a = 0; a <= 40; a++) for (let b = 0; b <= 40; b++) {
-  const [x, y] = printXY(petalJS(a / 20 - 1, b / 40, k, OPEN[k])); fx0 = Math.min(fx0, x); fx1 = Math.max(fx1, x); fy0 = Math.min(fy0, y); fy1 = Math.max(fy1, y);
-}
-const S = Math.min((bx1 - bx0) / (fx1 - fx0), (by1 - by0) / (fy1 - fy0));
-const FIT = new THREE.Vector3((fx0 + fx1) / 2, (fy0 + fy1) / 2, S);
+// each orchid: artwork bbox, column (centre) position, and its own way of moving
+const FLOWERS = [
+  { box: [25, 351, 292, 584],  c: [188, 462],  type: 0 },   // blue veined  — folds into a bud, then blooms open slowly
+  { box: [360, 676, 300, 587], c: [518, 456],  type: 1 },   // black        — rises and turns, a light glides over the velvet
+  { box: [677, 993, 313, 577], c: [835, 458],  type: 2 },   // blue-dotted  — its dots drift off as pollen and come home
+  { box: [998, 1310, 308, 580], c: [1154, 457], type: 3 },  // navy-ringed  — the ringed petals beat like wings
+  { box: [1321, 1650, 296, 586], c: [1485, 456], type: 4 }, // ruffled      — ruffles ripple as if in a breeze
+];
+const SPOTS = [893,450,935,485,893,529,769,450,902,544,857,439,827,425,780,480,761,560,835,434,779,513,775,460,826,399,837,425,778,525,819,423,764,543,919,413,778,518,730,502,785,467,828,434,863,438,886,520,840,416,874,412,763,492,843,423,801,384,892,530,758,489,738,398,867,436,784,549,868,431,830,401,857,435,887,456,784,455,751,506,777,448,820,433,737,510,889,413,894,482,898,411,789,440,755,547,783,543,832,411,837,402,855,387,800,409,805,440,920,500,834,413,789,392,838,367,886,533,859,403,744,475,747,411,745,498,774,526,736,486,834,425,863,405,774,500,776,443,857,440,831,426,728,417,743,388,894,449,862,429,843,389,796,404,833,411,834,430,780,515,829,391,728,422,894,442,836,409,870,431,780,446,767,548,912,539,783,533,893,530,912,540,891,559,782,526,819,416,833,424,843,383,768,441,766,562,869,427,875,406,831,424,889,394,785,454,909,386,772,460,833,435,794,423,822,422,782,440,772,380,860,377,812,405,888,492,841,434,878,386,770,440,837,396,730,501,764,492,835,379,733,491,871,429,886,464,926,479,771,489,840,424,770,560,741,500,780,443,843,410,783,526,804,434,743,499,903,530,843,432,829,435,783,527,762,556,795,410,774,443,771,554,804,439,831,389,866,437,828,403,749,499,810,440,761,547,783,443,831,418,773,518,771,425,808,436,862,437,724,484,825,405,783,457,841,416,844,385,863,428,841,430,741,441,845,415,899,450,814,438,823,383,783,463,899,557,756,511,784,465,784,393,824,426,782,467,809,438,904,420,757,428,824,428,812,440,916,515,826,416,888,462,840,409,868,404,753,417,892,543,890,545,795,396,887,520,898,557,886,403,785,458,841,394,850,417,791,410,851,411,795,383,834,428,819,412,750,482,778,540,766,535,841,425,915,393,766,470,891,388,782,461,802,432,833,401,773,527,834,401,842,427,750,394,757,396,835,374,771,426,830,406,838,422,861,436,839,422,904,548,859,435,827,421,868,416,776,534,775,459,841,392,784,459,848,422,897,449,836,416,773,517,886,456,832,418,776,446,831,427,776,445,835,430,828,394,863,437,845,417,900,494,778,445,804,438,869,428,831,397,834,392,831,410,771,450,738,488,845,401,747,397,808,440,791,403,773,522,905,511,791,382,788,438,846,438,899,558,764,443,842,424,770,530,903,559,818,413,886,519,725,469,813,437,865,430,725,484,822,432,823,405,777,550,845,402,885,462,843,434,780,377,855,438,804,415,807,435,807,395,823,384,919,390,772,482,824,406,863,430,794,422,795,405,823,403,912,493,756,508,848,437,814,440,732,491,837,408,820,431,802,434,882,386,778,447,859,438,779,559,783,395,782,533,782,436,813,435,765,469,835,424,775,461,841,393,739,514,844,414,778,514,806,400,782,458,833,418,916,510,803,436,760,560,808,410,783,437,727,493,830,427,820,399,893,384,836,425,828,390,833,415,899,383,746,484,776,538,777,557,767,541,743,478,860,436,779,523,898,561,850,402,863,406,916,511,833,425,802,438,822,401,802,418,769,432,871,387,834,405,757,535,824,391,720,489,751,483,742,401,887,448,827,417,910,385,916,472,793,408,841,423,833,428,902,385,858,436,773,458,781,411,775,443,782,464,755,442,779,519,778,529,773,516,769,539,742,441,890,375,796,383,887,554,795,388,855,435,738,423,820,408,897,539,828,421,790,418,782,462,905,548,833,420,839,409,937,498,885,523,767,479,812,439,828,397,807,439,835,433,862,367,779,528,766,381,913,543,838,423,780,504,809,417,887,521,894,447,784,436,827,420,847,422,832,397,770,395,840,423,892,449,865,429,851,409,821,412,779,522,781,380,782,463,835,414,811,438,862,419,784,437,839,426,773,482,736,499,771,449,751,385,906,512,814,411,905,517,837,397,774,384,903,502,789,429,829,423,819,424,716,426,809,418,886,542,767,542,845,437,859,440,818,418,747,485,828,420,774,521,780,514,745,505,824,404,946,490,734,417,780,411,940,503,764,469,829,419,832,431,850,392,765,506,888,395,847,417,753,465,742,392,735,490,804,432,742,506,777,449,812,433,770,450,848,399,926,502,846,418,776,418,773,520,887,462,844,406,909,434,774,518,766,536,734,509,824,415,812,438,887,425,809,440,834,424,813,438,814,416,923,516,762,478,778,483,943,490,857,437,856,439,893,528,794,378,827,427,883,381,885,460,780,448,771,546,913,542,918,479,770,432,855,388,844,384,792,386,724,488,892,447,885,461,783,547,823,411,791,418,856,388,904,403,768,387,746,505,835,423,818,415,855,439,897,513,778,512,776,377,788,431,828,428,765,562,887,533,803,439,893,385,757,489,760,530,784,463,893,560,890,463,763,506,893,443,885,525,813,434,771,441,782,466,775,450,777,458,772,451,897,498,796,397,738,509,843,406,917,494,795,416,824,410,847,419,893,531,842,434,770,441,784,453,844,410,775,445,881,403,803,435,884,440,750,515,871,427,731,501,782,446,750,483,886,497,840,426,925,493,814,412,806,440,753,466,784,515,778,519,780,513,893,510,778,520,889,463,822,423,764,544,843,435,830,405,888,448,904,531,761,496,749,426,840,404,835,427,771,536,777,546,828,382,783,454,775,513,757,397,772,426,822,402,922,513,725,483,867,434,850,416,835,425,763,389,762,497,871,430,779,515,781,440,831,425,840,410,777,538,776,539,782,548,740,487,900,485,777,420,832,401,756,507,898,540,885,452,808,411,736,500,886,527,836,431,841,414,889,450,796,405,862,436,791,439,743,498,782,465,784,445,855,436,832,428,869,434,738,514,834,389,837,426,832,388,804,433,780,481,871,399,890,538,819,413,930,506,838,376,848,438,774,405,771,431,898,447,860,439,813,411,809,436,823,424,787,413,776,459,778,517,834,395,837,422,910,434,891,448,739,488,895,449,729,422,897,392,753,415,765,502,868,429,825,428,807,438,778,515,783,466,845,410,899,556,880,419,768,540,773,450,925,479,724,489,720,484,917,471,888,459,892,450,783,542,836,400,774,561,885,456,732,484,796,389,894,536,750,426,722,495,838,381,782,532,830,423,795,409,750,511,774,456,890,447,770,449,746,497,770,558,869,437,903,488,762,444,776,541,779,529,930,480,782,550,830,419,885,526,804,405,843,416,806,436,773,483,770,559,808,439,785,459,725,493,764,400,897,561,856,417,739,475,796,396,778,523,893,426,774,523,822,409,908,562,778,527,862,439,840,425,883,440,885,440,765,468,827,418,837,404,821,431,913,505,742,507,779,383,858,438,887,450,752,466,835,417,760,412,768,552,877,382,888,463,805,389,770,538,841,415,889,449,894,535,902,545,775,546,722,425,804,404,769,449,858,439,918,518,753,395,844,397,824,400,840,414,777,419,730,500,899,532,831,396,886,441,835,389,847,423,834,421,898,552,886,448,775,514,853,418,831,393,848,425,824,395,777,502,752,496,840,415,885,527,790,436,787,404,821,411,874,401,886,459,823,426,788,430,844,411,781,445,829,427,773,543,771,443,783,516,885,463,902,512,780,401,842,433,845,412,826,407,770,444,887,508,734,396,807,394,868,435,752,392,750,510,833,426,781,506,842,425,898,541,885,445,889,537,852,419,840,411,765,415,886,462,825,414,882,440,834,414,829,395,758,386,891,446,756,442,848,436,785,435,755,492,765,563,889,447,909,500,833,431,946,478,890,461,785,456,913,556,765,470,776,550,832,385,933,491,804,414,828,435,796,392,886,454,806,439,917,559,780,483,777,532,765,512,785,475,845,436,784,468,903,532,862,418,741,507,772,458,762,505,924,506,894,426,916,471,792,411,768,401,847,387,808,435,811,440,834,393,829,418,835,380,904,475,804,416,771,531,775,456,840,432,773,550,776,420,834,427,895,537,839,402,905,515,840,400,788,428,923,399,728,493,894,537,782,444,804,435,853,377,799,409,790,437,834,369,841,429,847,418,781,554,886,554,774,373,813,421,848,418,784,394,904,532,765,507,834,436,858,434,835,411,726,493,776,451,812,434,765,399,837,392,904,520,731,506,889,464,899,389,881,440,781,505,789,437,782,445,827,428,783,462,783,458,857,434,827,434,716,482,868,437,885,455,929,506,784,517,716,483,886,439,805,438,883,386,755,546,766,502,780,447,871,431,895,535,772,483,823,409,842,432,833,430,772,449,828,386,760,392,823,425,761,406,818,424,769,440,751,505,778,450,805,415,844,417,889,519,765,382,839,421,755,502,778,419,787,431,806,396,933,505,892,558,889,504,784,547,790,396,842,368,811,435,752,495,913,506,779,514,864,430,866,399,842,390,801,419,783,441,827,429,806,435,784,516,810,438,812,435,809,437,843,414,848,416,826,428,760,537,827,435,777,451,770,442,886,553,777,445,885,457,856,437,770,490,812,406,759,499,830,426,755,511,771,545,834,435,825,416,844,422,729,417,877,387,851,410,775,515,907,551,785,516,779,512,784,464,893,441,863,440,728,483,827,409,761,513,767,469,865,396,885,451,719,474,894,425,861,439,747,484,805,401,768,406,780,465,829,401,719,467,760,531,829,437,852,395,903,385,756,553,903,489,775,405,777,549,840,378,883,378,784,447,808,437,774,517,811,432,848,423,814,437,885,374,778,522,894,409,779,518,774,451,805,400,783,445,850,410,835,384,859,394,907,550,833,427,776,533,914,519,828,426,911,548,807,411,761,479,832,426,942,490,846,435,863,429,775,533,773,384,851,417,845,435,848,434,828,436,783,551,765,543,893,449,834,388,781,388,903,397,916,498,834,417,841,426,780,467,822,431,802,393,900,508,766,524,770,396,908,500,846,436,764,531,772,459,841,417,888,455,817,416,892,448,860,440,862,401,791,402,938,475,826,408,901,544,843,426,788,436,831,392,780,440,781,465,911,549,869,436,840,429,858,435,768,541,904,560,782,447,784,460,776,457,895,483,836,426,834,397,759,382,893,527,875,407,762,496,927,464,781,446,904,547,782,527,768,442,788,392,915,401,811,439,771,537,808,438,783,436,802,394,885,439,906,511,783,442,887,457,775,388,788,439,788,437,924,516,812,436,777,558,882,399,847,435,908,551,886,460,780,505,781,389,823,410,895,448,822,410,889,465,821,399,766,410,825,415,836,401,889,448,763,540,738,503,773,514,729,493,877,391,737,509,770,531,921,407,770,431,930,481,783,446,931,447,784,454,827,437,823,430,813,439,890,546,835,412,841,432,845,411,791,419,817,422,775,444,774,450,856,438,834,416,776,545,843,390,905,549,785,455,829,426,762,547,728,481,916,400,813,422,790,440,781,461,787,428,772,450,834,423,781,443,842,423,847,386,837,394,887,464,751,482,838,421,846,434,775,545,845,394,835,396,832,427,888,449,843,427,836,411,743,486,774,444,848,435,785,548,891,531,888,465,834,412,849,423,866,396,897,448,761,512,861,437,835,418,796,393,754,514,850,423,836,434,783,459,889,460,756,428,756,501,768,494,929,493,774,449,887,440,771,379,730,492,852,418,747,443,782,443,758,488,892,443,930,517,864,392,828,378,771,535,824,416,840,422,780,450,891,530,887,543,950,473,767,524,796,406,782,441,828,425,834,422,843,409,887,461,769,443,925,504,837,400,807,412,781,447,786,381,756,443,856,435,904,540,888,493,887,454,783,393,748,495,827,410,835,419,818,416,926,493,759,484,772,507,781,442,864,429,773,521,765,544,916,512,822,425,892,441,867,404,890,552,784,446,866,436,757,488,857,417,921,494,909,538,768,551,922,493,815,417,790,403,845,406,778,448,830,425,836,405,750,395,825,399,834,396,834,411,862,405,798,421,887,455,776,495,784,434,867,437,818,422,828,391,776,549,842,415,871,390,872,428,853,419,779,401,842,429,839,400,810,417,781,463,861,371,867,403,781,481,897,497,880,406,886,457,832,417,890,448,781,467,752,471,775,540,887,542,901,513,787,405,814,417,839,423,796,400,758,490,723,488,783,546,861,438,837,377,741,506,828,409,769,530,719,485,754,416,887,449,868,428,925,503,782,460,887,459,828,429,757,517,781,464,799,410,885,458,881,402,769,441,890,501,834,418,886,455,791,411,904,533,819,392,780,449,782,468,846,374,821,424,785,446,750,499,755,443,743,400,938,498,894,546,774,513,925,506,832,389,852,416,825,409,869,430,843,425,828,395,782,544,920,509,842,435,806,397,887,439,919,509,801,401,905,555,885,446,717,426,826,419,933,495,843,431,761,480,842,431,904,501,785,462,890,450,903,531,806,384,889,517,800,414,836,406,947,499,774,527,888,534,829,398,838,393,844,398,835,432,832,416,779,449,823,423,769,442,923,506,886,458,915,515,831,419,835,435,773,515,780,506,802,435,781,448,889,518,850,403,736,490,858,440,769,493,900,507,832,376,780,384,828,398,862,440,885,520,832,425,796,409,801,397,775,457,893,497,868,430,773,457,760,561,884,439,769,494,831,406,819,408,763,444,782,454,769,418,838,425,758,518,783,394,886,452,819,415,913,507,908,401,848,398,859,437,891,501,819,393,828,419,780,466,838,401,740,442,779,484,911,515,845,395,888,461,898,532,719,489,887,399,893,550,888,381,809,390,908,400,886,440,771,395,834,426,810,434,737,493,825,408,888,535,811,393,840,377,818,417,763,378,833,433,892,446,793,423,779,400,764,493,720,485,837,409,781,444,784,546,877,381,774,460,800,405,771,451,860,378,942,499,872,398,898,449,828,387,781,439,844,433,832,419,785,463,781,482,889,395,837,418,786,428,733,423,836,402,857,410,832,392,738,391,805,406,771,488,872,381,805,436,904,502,886,548,897,540,834,434,909,501,801,396,832,433,887,519,891,450,844,415,885,448,888,464,803,432,780,441,824,429,857,416,790,398,834,433,779,448,819,414,862,411,821,430,922,407,728,442,775,532,760,499,776,532,779,480,848,417,789,439,768,407,922,494,898,562,830,410,782,547,781,503,777,540,787,414,831,417,844,402,780,412,838,392,898,533,759,489,915,498,774,542,869,429,773,542,946,499,846,417,727,482,761,497,793,407,814,436,783,465,768,525,823,422,795,392,868,403,820,432,826,415,791,404,890,539,809,435,779,481,890,519,822,426,855,440,783,456,806,437,840,430,793,412,909,385,813,436,920,433,769,376,781,462,862,399,773,461,750,505,739,503,872,429,840,402,776,546,785,547,785,452,742,391,850,391,894,408,834,415,880,418,871,398,897,447,786,430,784,461,825,427,837,416,773,459,768,386,892,497,801,400,827,426,732,492,906,516,850,409,810,439,759,500,823,432,833,405,763,552,778,528,921,517,847,437,888,453,843,384,772,536,763,541,843,433,883,387,856,434,777,459,843,411,833,417,871,428,892,550,772,522,744,498,899,541,842,391,890,462,824,424,804,389,764,399,884,421,893,447,844,424,849,398,765,511,849,391,774,516,892,557,917,472,834,406,842,383,916,449,890,530,849,415,828,437,785,476,789,436,844,407,841,427,762,443,823,380,800,418,785,474,844,423,831,409,838,417,890,449,864,428,869,435,778,446,926,503,844,421,785,457,819,422,782,453,796,388,737,500,764,530,770,443,790,397,840,401,768,388,770,489,932,495,823,427,805,414,823,429,818,385,835,431,904,530,751,386,777,553,868,438,836,417,827,416,826,417,910,490,822,424,883,377,740,441,864,440,835,416,740,475,719,473,728,486,840,431,834,394,886,445,756,502,829,425,897,450,888,533,886,449,901,543,836,397,831,428,913,539,788,429,783,435,774,459,749,490,784,457,774,543,795,415,830,424,889,493,778,371,783,444,891,451,926,510,777,534,935,489,893,559,831,388,776,389,875,402,775,451,771,442,849,425,846,387,828,392,911,493,891,558,782,455,779,397,746,485,837,424,769,444,770,501,768,444,777,444,821,425,845,434,838,409,891,529,882,398,892,542,839,425,826,429,789,398,750,516,870,394,892,560,901,545,886,453,820,400,745,516,823,390,774,531,786,382,781,466,892,442,857,438,767,373,783,434,903,560,805,416,763,443,750,506,887,458,833,416,886,521,841,435,913,493,838,424,847,438,853,417,819,399,847,436,916,499];
 
 // ---------- AR ----------
 const mindar = new MindARThree({ container: document.getElementById('ar'), imageTargetSrc: './postcard.mind',
@@ -85,219 +68,201 @@ const mindar = new MindARThree({ container: document.getElementById('ar'), image
 const { renderer, scene, camera } = mindar;
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 const anchor = mindar.addAnchor(0);
-const root = new THREE.Group(); root.position.set(CENTER[0], CENTER[1], 0); anchor.group.add(root);
+const tex = new THREE.TextureLoader().load('./orchids.png');
+tex.generateMipmaps = true; tex.minFilter = THREE.LinearMipmapLinearFilter; tex.anisotropy = 4;
 
-// petal surface mesh: one (u,v) grid per petal; the vertex shader does all the shaping
-const GU = 28, GV = 56, uv = [], pet = [], idx = [];
-for (let k = 0; k < 6; k++) {
-  const base = k * (GU + 1) * (GV + 1);
-  for (let j = 0; j <= GV; j++) for (let i = 0; i <= GU; i++) { uv.push(i / GU * 2 - 1, j / GV); pet.push(k); }
-  for (let j = 0; j < GV; j++) for (let i = 0; i < GU; i++) { const a = base + j * (GU + 1) + i, b = a + 1, c = a + GU + 1, d = c + 1; idx.push(a, c, b, b, c, d); }
-}
-const pg = new THREE.BufferGeometry();
-pg.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(uv.length / 2 * 3), 3));
-pg.setAttribute('aUV', new THREE.Float32BufferAttribute(uv, 2));
-pg.setAttribute('aPet', new THREE.Float32BufferAttribute(pet, 1));
-pg.setIndex(idx);
-
-const U = { uPeel: { value: new Array(6).fill(0) }, uBloom: { value: new Array(6).fill(0) }, uLift: { value: 0 }, uStam: { value: 0 },
-  uTime: { value: 0 }, uFit: { value: FIT }, uLight: { value: new THREE.Vector3(-.5, .6, .62).normalize() } };
-
-const LILY_COMMON = `
-  uniform float uPeel[6], uBloom[6], uLift, uTime; uniform vec3 uFit;
-  float LENk(int k){ return (k == 0 || k == 2 || k == 4) ? 1.02 : .96; }
-  float WIDk(int k){ return (k == 0 || k == 2 || k == 4) ? .36 : .47; }
-  float OPNk(int k){ return (k == 0 || k == 2 || k == 4) ? .42 : .5; }
-  float peelOf(int k){ return k==0?uPeel[0]:k==1?uPeel[1]:k==2?uPeel[2]:k==3?uPeel[3]:k==4?uPeel[4]:uPeel[5]; }
-  float bloomOf(int k){ return k==0?uBloom[0]:k==1?uBloom[1]:k==2?uBloom[2]:k==3?uBloom[3]:k==4?uBloom[4]:uBloom[5]; }
-  vec3 petal(float u, float v, int k, float th, float bl){
-    float w = pow(max(0., sin(3.14159265 * pow(clamp(v, 0., 1.), .62))), .85);
-    float wd = WIDk(k) * mix(.62, 1., bl);
-    float x = u * wd * .5 * w, y = v * LENk(k) * mix(.9, 1., bl) + .04;
-    float z = .32 * mix(1.6, 1., bl) * u * u * w * wd * .5 + mix(.06, -.38, bl * bl) * v * v * LENk(k) + .018 * sin(u * 7. + v * 11. + uTime * .9) * v * bl;
-    float ct = cos(th), st = sin(th); float y1 = y * ct - z * st, z1 = y * st + z * ct;
-    float ph = (float(k) * 60. + 15.) * .01745329; float cp = cos(ph), sp = sin(ph);
-    return vec3(x * cp - y1 * sp, x * sp + y1 * cp, z1);
-  }
-  vec2 printXY(vec3 p){ float y1 = p.y * cos(-.42) - p.z * sin(-.42); return vec2(p.x * cos(.18) - y1 * sin(.18), p.x * sin(.18) + y1 * cos(.18)); }
-  vec3 lilyP(float u, float v, int k){
-    float bl = bloomOf(k);
-    float th = mix(1.38, OPNk(k), bl) + .04 * sin(uTime * 1.05 + float(k) * 1.7) * bl;
-    vec3 p3 = petal(u, v, k, th, bl) * uFit.z * .82; p3.z += uLift;
-    vec3 fl = vec3((printXY(petal(u, v, k, OPNk(k), 1.)) - uFit.xy) * uFit.z, .002 + float(k - (k / 2) * 2) * .0012 + v * .0002);
-    float pe = clamp(peelOf(k) * 1.35 - v * .35, 0., 1.); pe = pe * pe * (3. - 2. * pe);
-    return mix(fl, p3, pe);
-  }`;
-const lilyMat = new THREE.ShaderMaterial({ uniforms: U, side: THREE.DoubleSide,
-  vertexShader: LILY_COMMON + `
-    attribute vec2 aUV; attribute float aPet; varying vec3 vN, vV; varying vec2 vUV;
-    void main(){
-      int k = int(aPet + .5); float u = aUV.x, v = aUV.y, e = .012;
-      vec3 p = lilyP(u, v, k);
-      vec3 du = lilyP(u + e, v, k) - lilyP(u - e, v, k), dv = lilyP(u, v + e, k) - lilyP(u, max(v - e, 0.), k);
-      vN = normalize(normalMatrix * cross(du, dv));
-      vec4 mv = modelViewMatrix * vec4(p, 1.); vV = -mv.xyz; vUV = aUV;
-      gl_Position = projectionMatrix * mv;
-    }`,
-  fragmentShader: `
-    uniform vec3 uLight; uniform float uTime; varying vec3 vN, vV; varying vec2 vUV;
-    void main(){
-      vec3 V = normalize(vV), n = normalize(vN); if (dot(n, V) < 0.) n = -n;
-      float dif = max(dot(n, uLight), 0.), rim = pow(1. - max(dot(n, V), 0.), 2.);
-      float L = .14 + .72 * dif + .3 * rim;
-      L *= .45 + .55 * smoothstep(.0, .3, vUV.y);                                  // dark throat
-      L += .16 * exp(-vUV.x * vUV.x * 260.) * smoothstep(.05, .3, vUV.y);           // midrib
-      L += .1 * smoothstep(.85, .98, abs(vUV.x));                                   // bright rims
-      L *= .9 + .1 * sin(vUV.y * 40. + vUV.x * 6.);                                 // faint ribbing
-      gl_FragColor = vec4(clamp(L, 0., 1.), 1., 0., 1.);
-    }` });
-const lilyMesh = new THREE.Mesh(pg, lilyMat); lilyMesh.frustumCulled = false; root.add(lilyMesh);
-
-// stamens & pistil as bright points
-const sp = [], st = []; let seed = 7; const rnd = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
-for (let k = 0; k < 7; k++) for (let j = 0; j < 260; j++) { sp.push(k, rnd(), rnd()); }
-const sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3));
-const stamMat = new THREE.ShaderMaterial({ uniforms: { ...U, uPx: { value: 6 } },
-  vertexShader: `uniform float uStam, uLift, uPx; uniform vec3 uFit;
-    vec3 bz(vec3 a, vec3 m, vec3 c, float t){ float s = 1. - t; return s * s * a + 2. * s * t * m + t * t * c; }
-    varying float vL;
-    void main(){
-      int s = int(position.x + .5); float t = position.y, ang = float(s) * 1.0471976 + .4;
-      vec3 tip = s == 6 ? vec3(.03, .06, .78) : vec3(cos(ang) * .42, sin(ang) * .42, .58);
-      bool head = t > .8; vec3 q = head ? tip + (vec3(position.z, fract(position.z * 7.3), fract(position.z * 3.1)) - .5) * vec3(.08, .04, .03) : bz(vec3(0., 0., .06), vec3(tip.xy * .35, .38), tip, t / .8);
-      float g = clamp(uStam * 1.3 - t * .3, 0., 1.);
-      vec3 p = mix(vec3(0., 0., .06), q, g) * uFit.z * .82; p.z += uLift;
-      vL = head ? .95 : .7;
-      vec4 mv = modelViewMatrix * vec4(p, 1.); gl_Position = projectionMatrix * mv;
-      gl_PointSize = uStam > .02 ? uPx * (head ? 1.6 : 1.) : 0.;
-    }`,
-  fragmentShader: `varying float vL; void main(){ if (length(gl_PointCoord - .5) > .5) discard; gl_FragColor = vec4(vL, 1., 0., 1.); }` });
-for (const key in U) stamMat.uniforms[key] = U[key];
-const stam = new THREE.Points(sg, stamMat); stam.frustumCulled = false; root.add(stam);
-
-// ---------- glyph post-process ----------
-let rtLily = null, rtBlur = null; const buf = new THREE.Vector2();
-const post = new THREE.Scene(), ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2)); post.add(quad);
-const QV = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0., 1.); }`;
-const downMat = new THREE.ShaderMaterial({ uniforms: { tSrc: { value: null }, uTx: { value: new THREE.Vector2() } }, vertexShader: QV,
-  fragmentShader: `uniform sampler2D tSrc; uniform vec2 uTx; varying vec2 vUv;
-    void main(){ vec4 a = vec4(0.); for (int i = -2; i <= 2; i++) for (int j = -2; j <= 2; j++) a += texture2D(tSrc, vUv + vec2(float(i), float(j)) * uTx * 1.6); gl_FragColor = a / 25.; }` });
-const glyphMat = new THREE.ShaderMaterial({ blending: THREE.NoBlending, depthTest: false, depthWrite: false,
-  uniforms: { tLily: { value: null }, tBlur: { value: null }, uRes: { value: new THREE.Vector2() }, uBTx: { value: new THREE.Vector2() }, uCell: { value: 12 },
-    uTime: { value: 0 }, uAlpha: { value: 0 }, uBody: { value: new THREE.Vector3(...LOOK.body) }, uLightC: { value: new THREE.Vector3(...LOOK.light) },
-    uInk: { value: new THREE.Vector3(...LOOK.ink) }, uSpot: { value: new THREE.Vector2(.4, .5) } },
-  vertexShader: QV,
-  fragmentShader: `
-    uniform sampler2D tLily, tBlur; uniform vec2 uRes, uBTx, uSpot; uniform float uCell, uTime, uAlpha; uniform vec3 uBody, uLightC, uInk;
-    varying vec2 vUv;
-    float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-    float box(vec2 f, vec2 c, vec2 h, float aa){ vec2 d = abs(f - c) - h; return 1. - smoothstep(-aa, aa, max(d.x, d.y)); }
-    float ring(vec2 f, vec2 h, float r, float w, float aa){ vec2 q = abs(f - .5) - h + r; float d = length(max(q, 0.)) + min(max(q.x, q.y), 0.) - r; return 1. - smoothstep(w - aa, w + aa, abs(d)); }
-    void main(){
-      vec2 px = gl_FragCoord.xy, cell = floor(px / uCell), f = fract(px / uCell);
-      vec2 tx = uCell / uRes, cuv = (cell + .5) * tx;
-      vec4 c = texture2D(tLily, cuv);
-      float cov = c.g, L = c.r, aa = 1.1 / uCell;
-      float h = hash(cell), tick = floor(uTime * 4. + h * 9.), h2 = hash(cell + tick * 1.37);
-      float g = 0.;
-      if (cov > .5) {
-        float edge = step(min(min(texture2D(tLily, cuv - vec2(tx.x, 0.)).g, texture2D(tLily, cuv + vec2(tx.x, 0.)).g),
-                              min(texture2D(tLily, cuv - vec2(0., tx.y)).g, texture2D(tLily, cuv + vec2(0., tx.y)).g)), .5);
-        float l = L + (h2 - .5) * .16;
-        float hd = box(f, vec2(.5), vec2(.52, .1), aa);                 // horizontal dash, joins its neighbours
-        float vb = box(f, vec2(.5), vec2(.11, .32), aa);                   // vertical tick
-        float dt = box(f, vec2(.5), vec2(.12, .18), aa);                  // small dot
-        float pl = max(box(f, vec2(.5), vec2(.42, .065), aa), box(f, vec2(.5), vec2(.065, .42), aa));
-        float cp = max(ring(f, vec2(.44, .2), .2, .06, aa), box(f, vec2(.5), vec2(.52, .06), aa) * step(.5, h));
-        if (edge > .5 && h > .3) g = pl;
-        else if (l < .2) g = h2 > .55 ? dt * .8 : 0.;
-        else if (l < .38) g = dt;
-        else if (l < .56) g = h2 > .25 ? vb : dt;
-        else if (l < .76) g = h2 > .15 ? hd : vb;
-        else g = h2 > .62 ? cp : h2 > .3 ? hd : pl;
-        g *= smoothstep(.12, .3, L) * .35 + .65;
+const VERT = `
+  uniform float uT, uE, uLift, uR, uA, uB, uShadow; uniform int uType; uniform vec2 uImgC; uniform float uPxA;
+  varying vec2 vUv, vImg; varying float vShade, vZ;
+  vec3 deform(vec2 p){
+    float r = length(p), rn = r / uR, th = atan(p.y, p.x);
+    vec3 q = vec3(p, 0.);
+    if (uType == 0) {                          // bud → bloom
+      float stag = .5 + .5 * sin(5. * th + 1.3);
+      float o = clamp(uA * 1.35 - .35 * stag, 0., 1.); o = o * o * (3. - 2. * o);
+      float r0 = .16 * uR, d = max(r - r0, 0.);
+      float phi = (1. - o) * 1.3 * smoothstep(0., .12 * uR, d);       // petals hinge up from their base into a bud
+      float rr = min(r, r0) + d * cos(phi);
+      q = vec3(cos(th) * rr, sin(th) * rr, d * sin(phi));
+      q.z += .012 * uR * sin(uT * .9 + th * 3.) * rn * o;
+    } else if (uType == 1) {                   // slow turn + breathing petals
+      q.z += .06 * uR * rn * rn * sin(uT * 1.1 + th);
+      float ay = .32 * sin(uT * .45), ax = .16 * sin(uT * .33 + 1.);
+      q = vec3(q.x * cos(ay) + q.z * sin(ay), q.y, -q.x * sin(ay) + q.z * cos(ay));
+      q = vec3(q.x, q.y * cos(ax) - q.z * sin(ax), q.y * sin(ax) + q.z * cos(ax));
+    } else if (uType == 2) {                   // gentle sway while the dots travel
+      q.z += .04 * uR * rn * rn * sin(uT * .8 + th * 2.);
+      float a = .05 * sin(uT * .5);
+      q.xy = mat2(cos(a), sin(a), -sin(a), cos(a)) * q.xy;
+    } else if (uType == 3) {                   // wings
+      float x0 = .1 * uR, d = abs(p.x) - x0;
+      if (d > 0.) {
+        float w = smoothstep(0., .25 * uR, d);
+        float flap = (.45 + .4 * sin(uT * 1.5)) * w * uA;
+        float d2 = d * cos(flap); q.x = sign(p.x) * (x0 + d2); q.z = d * sin(flap);
       }
-      // soft bloom body behind the glyphs
-      vec2 b = uBTx * 2.2; vec4 bl = vec4(0.);
-      for (int i = -2; i <= 2; i++) for (int j = -2; j <= 2; j++) bl += texture2D(tBlur, vUv + vec2(float(i), float(j)) * b);
-      bl /= 25.;
-      float body = smoothstep(.08, .75, bl.g);
-      float spot = exp(-dot(vUv - uSpot, (vUv - uSpot) * vec2(uRes.x / uRes.y, uRes.y / uRes.x)) * 9.);
-      float lb = clamp(bl.r / max(bl.g, .01), 0., 1.);
-      vec3 bc = mix(uBody * .45, uBody * 1.55 + .08, smoothstep(.15, .85, lb));
-      bc = mix(bc, uLightC * .9, spot * .4 * body);
-      float ba = body * (.82 + .12 * spot);
-      vec3 col = mix(bc, mix(uInk * .72, uInk, smoothstep(.3, .7, L)), g);
-      float a = max(ba, g * .97) * uAlpha;
-      gl_FragColor = vec4(col * a, a);
-    }` });
-
-function ensureTargets() {
-  renderer.getDrawingBufferSize(buf);
-  const w = Math.max(2, buf.x | 0), h = Math.max(2, buf.y | 0);
-  if (rtLily && rtLily.width === w && rtLily.height === h) return;
-  rtLily?.dispose(); rtBlur?.dispose();
-  const opt = { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter };
-  rtLily = new THREE.WebGLRenderTarget(w, h, { ...opt, depthBuffer: true });
-  rtBlur = new THREE.WebGLRenderTarget(Math.ceil(w / 8), Math.ceil(h / 8), { ...opt, depthBuffer: false });
-  const cell = Math.max(7, Math.round(Math.min(w, h * .75) / LOOK.cols));
-  glyphMat.uniforms.uRes.value.set(w, h); glyphMat.uniforms.uCell.value = cell;
-  glyphMat.uniforms.uBTx.value.set(1 / rtBlur.width, 1 / rtBlur.height);
-  downMat.uniforms.uTx.value.set(1 / w, 1 / h);
-  stamMat.uniforms.uPx.value = cell * .55;
-}
-function renderFrame() {
-  ensureTargets();
-  const ac = renderer.getClearAlpha(); renderer.setClearColor(0x000000, 0);
-  renderer.setRenderTarget(rtLily); renderer.clear(); renderer.render(scene, camera);
-  quad.material = downMat; downMat.uniforms.tSrc.value = rtLily.texture;
-  renderer.setRenderTarget(rtBlur); renderer.clear(); renderer.render(post, ortho);
-  quad.material = glyphMat; glyphMat.uniforms.tLily.value = rtLily.texture; glyphMat.uniforms.tBlur.value = rtBlur.texture;
-  renderer.setRenderTarget(null); renderer.clear(); renderer.render(post, ortho);
-  renderer.setClearColor(0x000000, ac);
-}
-
-// ---------- timeline (loops) ----------
-const ease = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
-const back = x => { const c1 = 1.2, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); };
-const c01 = x => Math.min(1, Math.max(0, x));
-const LOOP = 15;
-const ORDER = [0, 3, 1, 4, 2, 5];
-function update(T0) {
-  const T = T0 % LOOP;
-  U.uTime.value = T0; glyphMat.uniforms.uTime.value = T0;
-  glyphMat.uniforms.uAlpha.value = c01(T0 / .6);
-  const close = c01((T - 11.2) / 1.2), lay = c01((T - 12.3) / 1.6);
-  for (let j = 0; j < 6; j++) {
-    const k = ORDER[j];
-    const up = ease(c01((T - 1.0 - j * .18) / 1.2));
-    const open = back(c01((T - 2.8 - j * .11) / 1.8));
-    U.uPeel.value[k] = up * (1 - ease(c01(lay * 1.15 - (5 - j) * .03)));
-    U.uBloom.value[k] = open * (1 - ease(close));
+      q.z += .02 * uR * sin(uT * 1.5 + .8) * smoothstep(.0, .6, -p.y / uR);
+    } else {                                   // ruffle breeze
+      float edge = smoothstep(.3, 1., rn);
+      q.z += uR * .07 * sin(th * 7. + uT * 2.1 - rn * 7.) * edge * uA;
+      q.xy += normalize(p + 1e-5) * uR * .025 * sin(th * 5. - uT * 1.7) * edge * uA;
+      float a = .07 * sin(uT * .4);
+      q.xy = mat2(cos(a), sin(a), -sin(a), cos(a)) * q.xy;
+    }
+    q = mix(vec3(p, 0.), q, uE);                // uE: 0 = lying flat on the print
+    q.z += uLift * uE;
+    return q;
   }
-  U.uStam.value = ease(c01((T - 3.7) / 1.4)) * (1 - ease(c01((T - 11) / .8)));
-  U.uLift.value = .09 * ease(c01((T - 1.0) / 1.7)) * (1 - ease(lay));
-  root.rotation.z = .06 * Math.sin(T0 * .33) * c01((T - 4) / 2) * (1 - lay);
-  // the light slowly circles the flower, so the glyph field keeps shifting
-  const a = T0 * .45; U.uLight.value.set(Math.cos(a) * .7, Math.sin(a) * .7, .55).normalize();
-  glyphMat.uniforms.uSpot.value.set(.5 + .22 * Math.cos(a * .8 + 2), .5 + .16 * Math.sin(a * .8 + 2));
+  void main(){
+    vec2 p = position.xy; float e = uR * .02;
+    vec3 q = deform(p);
+    vec3 n = normalize(cross(deform(p + vec2(e, 0.)) - deform(p - vec2(e, 0.)), deform(p + vec2(0., e)) - deform(p - vec2(0., e))));
+    vShade = .82 + .3 * dot(n, normalize(vec3(-.4, .5, .78)));
+    vZ = q.z;
+    if (uShadow > .5) { q = vec3(q.xy + vec2(.55, -.75) * q.z, .0008); }
+    vUv = uv; vImg = uImgC + p / uPxA;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(q, 1.);
+  }`;
+const FRAG = `
+  uniform sampler2D tMap; uniform float uT, uE, uB, uShadow, uFade; uniform int uType; uniform vec2 uImgC;
+  varying vec2 vUv, vImg; varying float vShade, vZ;
+  void main(){
+    if (uShadow > .5) {
+      float a = texture2D(tMap, vUv, 3.5).a;
+      gl_FragColor = vec4(.1, .12, .2, a * .28 * uE * smoothstep(.0, .01, vZ + .002) * uFade); return;
+    }
+    vec4 c = texture2D(tMap, vUv);
+    if (c.a < .02) discard;
+    vec3 col = c.rgb;
+    if (uType == 2) {                           // the dots that have flown away leave pale petal behind
+      float blue = smoothstep(30., 80., (c.b - max(c.r, c.g * .9)) * 255.);
+      float lip = (abs(vImg.x - uImgC.x) < 50. && vImg.y > 440.) ? 0. : 1.;
+      col = mix(col, vec3(.96, .95, .92), blue * lip * uB);
+    }
+    if (uType == 1) {                           // a light gliding over the black petals
+      float s = sin(uT * .6) * 160.;
+      float band = exp(-pow((vImg.x - uImgC.x - s + (vImg.y - uImgC.y) * .45) / 38., 2.));
+      col += vec3(.55, .6, .75) * band * (1. - smoothstep(.15, .5, dot(c.rgb, vec3(.33)))) * .55 * uE;
+    }
+    col *= mix(1., vShade, uE);
+    gl_FragColor = vec4(col, c.a * uFade);
+  }`;
+
+const groups = [];
+for (const F of FLOWERS) {
+  const [x0, x1, y0, y1] = F.box, [cx, cy] = F.c;
+  const [ax, ay] = toA(cx, cy);
+  const pxA = SC / CW;                                        // anchor units per artwork pixel
+  const R = Math.max(cx - x0, x1 - cx, cy - y0, y1 - cy) * pxA;
+  const g = new THREE.PlaneGeometry((x1 - x0) * pxA, (y1 - y0) * pxA, 110, 110);
+  const pos = g.attributes.position, uvA = g.attributes.uv;
+  const offX = ((x0 + x1) / 2 - cx) * pxA, offY = -((y0 + y1) / 2 - cy) * pxA;
+  for (let i = 0; i < pos.count; i++) {
+    const lx = pos.getX(i) + offX, ly = pos.getY(i) + offY; pos.setXY(i, lx, ly);
+    const ix = cx + lx / pxA, iy = cy - ly / pxA;
+    uvA.setXY(i, ix / ATLAS.w, 1 - (iy - ATLAS.y0) / ATLAS.h);
+  }
+  const uni = { tMap: { value: tex }, uT: { value: 0 }, uE: { value: 0 }, uLift: { value: 0 }, uR: { value: R }, uA: { value: 1 }, uB: { value: 0 },
+    uShadow: { value: 0 }, uType: { value: F.type }, uImgC: { value: new THREE.Vector2(cx, cy) }, uPxA: { value: pxA }, uFade: { value: 0 } };
+  const flower = new THREE.Mesh(g, new THREE.ShaderMaterial({ uniforms: uni, vertexShader: VERT, fragmentShader: FRAG, transparent: true, side: THREE.DoubleSide, depthWrite: true }));
+  const shUni = { ...uni, uShadow: { value: 1 } };
+  const shadow = new THREE.Mesh(g, new THREE.ShaderMaterial({ uniforms: shUni, vertexShader: VERT, fragmentShader: FRAG, transparent: true, depthWrite: false }));
+  for (const k in uni) if (k !== 'uShadow') shadow.material.uniforms[k] = uni[k];
+  shadow.renderOrder = 0; flower.renderOrder = 2; flower.frustumCulled = shadow.frustumCulled = false;
+  const grp = new THREE.Group(); grp.position.set(ax, ay, 0); grp.add(shadow, flower); anchor.group.add(grp);
+  groups.push({ F, uni, grp, R, pxA, ax, ay });
+}
+
+// ---------- pollen from the dotted orchid + ambient glints ----------
+const dotted = groups[2], NS = SPOTS.length / 2, NA = 700;
+const pPos = new Float32Array((NS + NA) * 3), pA = new Float32Array((NS + NA) * 4);
+let seed = 5; const rnd = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+for (let i = 0; i < NS; i++) {
+  pPos[i * 3] = (SPOTS[i * 2] - dotted.F.c[0]) * dotted.pxA; pPos[i * 3 + 1] = -(SPOTS[i * 2 + 1] - dotted.F.c[1]) * dotted.pxA;
+  pA[i * 4] = rnd(); pA[i * 4 + 1] = rnd(); pA[i * 4 + 2] = rnd(); pA[i * 4 + 3] = 0;
+}
+for (let i = NS; i < NS + NA; i++) { pPos[i * 3] = (rnd() - .5) * 1.0; pPos[i * 3 + 1] = (rnd() - .5) * .5; pA[i * 4] = rnd(); pA[i * 4 + 1] = rnd(); pA[i * 4 + 2] = rnd(); pA[i * 4 + 3] = 1; }
+const pg = new THREE.BufferGeometry();
+pg.setAttribute('position', new THREE.BufferAttribute(pPos, 3)); pg.setAttribute('aS', new THREE.BufferAttribute(pA, 4));
+const PU = { uT: { value: 0 }, uB: { value: 0 }, uLift: { value: 0 }, uR: { value: dotted.R }, uPx: { value: 4 }, uShow: { value: 0 }, uCenter: { value: new THREE.Vector2(dotted.ax, dotted.ay) } };
+const pMat = new THREE.ShaderMaterial({ uniforms: PU, transparent: true, depthWrite: false,
+  vertexShader: `uniform float uT, uB, uLift, uR, uPx, uShow; uniform vec2 uCenter; attribute vec4 aS; varying float vA, vK; varying vec3 vC;
+    void main(){
+      vec3 p;
+      if (aS.w < .5) {                                    // a dot of the orchid
+        vec2 home = position.xy; float b = clamp(uB * 1.25 - aS.x * .25, 0., 1.); b = b * b * (3. - 2. * b);
+        float ang = atan(home.y, home.x) + b * (1.4 + aS.y * 2.2) + uT * .15 * b;
+        float rr = length(home) * (1. + b * (.35 + aS.z * .75));
+        vec2 fly = vec2(cos(ang), sin(ang)) * rr;
+        p = vec3(mix(home, fly, b), uLift + .002 + b * (.03 + aS.y * .1) + .006 * sin(uT * 2. + aS.x * 30.) * b);
+        p.xy += uCenter;
+        vA = 1.; vK = 0.; vC = mix(vec3(.12, .2, .75), vec3(.35, .48, .95), aS.z);
+        vec4 mv = modelViewMatrix * vec4(p, 1.); gl_PointSize = uPx * .0019 * (.9 + .6 * aS.y) * (1. + b * .5) * length(vec3(modelViewMatrix[0])) * projectionMatrix[1][1] / -mv.z;
+      } else {                                            // ambient glints drifting above the card
+        float ph = fract(uT * (.02 + aS.y * .04) + aS.x);
+        p = vec3(position.xy + vec2(sin(uT * .3 + aS.z * 20.), cos(uT * .25 + aS.x * 20.)) * .02, ph * .16);
+        vA = sin(3.14159 * ph) * (.5 + .5 * sin(uT * (1. + aS.z * 2.) + aS.x * 40.)) * uShow;
+        vK = aS.z > .9 ? 2. : 1.; vC = mix(vec3(1.), vec3(.72, .8, 1.), aS.y);
+        vec4 mv = modelViewMatrix * vec4(p, 1.); gl_PointSize = uPx * .0018 * (vK > 1.5 ? 3.4 : 1.1 + aS.y) * length(vec3(modelViewMatrix[0])) * projectionMatrix[1][1] / -mv.z;
+      }
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.);
+    }`,
+  fragmentShader: `uniform float uB; varying float vA, vK; varying vec3 vC;
+    void main(){
+      vec2 q = gl_PointCoord - .5; float d = length(q), a;
+      if (vK < .5) { if (uB < .01) discard; a = smoothstep(.5, .3, d); }
+      else if (vK < 1.5) a = exp(-d * d * 20.);
+      else a = exp(-d * d * 70.) + .6 * exp(-abs(q.x) * 36.) * exp(-abs(q.y) * 6.) + .6 * exp(-abs(q.y) * 36.) * exp(-abs(q.x) * 6.);
+      a = clamp(a, 0., 1.) * vA; if (a < .01) discard;
+      gl_FragColor = vec4(vC, a);
+    }` });
+const pollen = new THREE.Points(pg, pMat); pollen.frustumCulled = false; pollen.renderOrder = 3; anchor.group.add(pollen);
+
+// ---------- timeline ----------
+const sine = x => .5 - .5 * Math.cos(Math.PI * x);
+const c01 = x => Math.min(1, Math.max(0, x));
+function update(t) {
+  const rect = renderer.domElement.height;
+  PU.uPx.value = rect * .5; PU.uT.value = t; PU.uShow.value = c01(t / 3);
+  groups.forEach((G, i) => {
+    const u = G.uni, start = .5 + i * .45;
+    const e = sine(c01((t - start) / 1.8));                 // each orchid lifts off the print in turn
+    u.uE.value = e; u.uFade.value = c01((t - start + .4) / .6);
+    u.uLift.value = G.R * (.07 + .02 * Math.sin(t * .8 + i * 1.3));
+    const lt = Math.max(0, t - start);
+    u.uT.value = lt;
+    if (G.F.type === 0) {                                     // 22 s cycle: fold to a bud, bloom over ~7 s, rest, fold again
+      const c = lt % 22;
+      u.uA.value = 1 - sine(c01(c / 2.5)) + sine(c01((c - 3.5) / 7));
+    } else if (G.F.type === 2) {                              // dots leave and return every 16 s
+      const c = (lt + 2) % 16;
+      u.uB.value = sine(c01((c - 3) / 4)) * (1 - sine(c01((c - 10) / 4.5)));
+      PU.uB.value = u.uB.value; PU.uLift.value = u.uLift.value * e; PU.uT.value = t;
+    } else if (G.F.type === 3) {
+      u.uA.value = sine(c01((lt - 1) / 2));
+    } else if (G.F.type === 4) {
+      u.uA.value = sine(c01((lt - .8) / 2.5));
+    }
+  });
 }
 
 // ---------- UI ----------
 const tag = document.getElementById('tag');
 let tStart = null;
-anchor.onTargetFound = () => { if (tStart === null) tStart = performance.now(); tag.textContent = 'TEMPUS FLORENS · LILIUM'; };
+anchor.onTargetFound = () => { if (tStart === null) tStart = performance.now(); tag.textContent = 'TEMPUS FLORENS · ORCHIDACEAE'; };
 anchor.onTargetLost = () => { tag.textContent = 'SEARCHING FOR THE POSTCARD'; };
 document.getElementById('replay').addEventListener('click', () => { if (tStart !== null) tStart = performance.now(); });
 document.getElementById('go').addEventListener('click', async () => {
   const err = document.getElementById('err'), go = document.getElementById('go');
   try {
-    const chk = await fetch('./postcard.mind', { method: 'HEAD', cache: 'no-store' });
-    if (!chk.ok) { err.hidden = false; err.textContent = 'postcard.mind not found — upload it next to postcard.html.'; return; }
+    for (const f of ['./postcard.mind', './orchids.png']) {
+      const chk = await fetch(f, { method: 'HEAD', cache: 'no-store' });
+      if (!chk.ok) { err.hidden = false; err.textContent = f.slice(2) + ' not found — upload it next to postcard.html.'; return; }
+    }
     go.textContent = 'Opening…';
     await mindar.start();
     document.getElementById('intro').hidden = true; tag.hidden = false; document.getElementById('dock').hidden = false;
-    renderer.setAnimationLoop(() => { if (tStart !== null) update((performance.now() - tStart) / 1000); renderFrame(); });
+    renderer.setAnimationLoop(() => { update(tStart === null ? 0 : (performance.now() - tStart) / 1000); renderer.render(scene, camera); });
   } catch (e) {
     go.textContent = 'Open camera'; err.hidden = false; err.textContent = 'Camera unavailable. Allow camera access, then reload.'; console.error(e);
   }
