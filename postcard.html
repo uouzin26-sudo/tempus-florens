@@ -52,7 +52,8 @@ const pc2a = (x, y) => [x / CW - .5, (.5 - y / CH) * ASPECT];
 // one bloom clip per orchid (colour on top, matte below); each clip's square = the end frame we gave the model
 const OX = 21.554, OY = 122.605, SC = 1.247;
 const FL = [ { c: [188, 462], half: 224 }, { c: [518, 456], half: 208 }, { c: [835, 458], half: 208 }, { c: [1154, 457], half: 205 }, { c: [1485, 456], half: 217 } ];
-const START = [0, 1.1, 2.2, 3.3, 4.4];
+const SPEED = 1.6;                               // bloom playback speed (1 = original 8 s clip)
+const START = [0, .7, 1.4, 2.1, 2.8];
 // bloom clips (generated with Higgsfield, background removed) — hosted on Higgsfield's CDN
 const CLIPS = [
   'https://d2ol7oe51mr4n9.cloudfront.net/user_3McsIk4m1p06fekoCs1471IRSr3/719a2f6a-2999-42ba-9b5b-f2ce4d3c88b1.mp4',
@@ -71,7 +72,7 @@ const anchor = mindar.addAnchor(0);
 const videos = FL.map((_, i) => {
   const v = document.createElement('video');
   v.src = CLIPS[i]; v.muted = true; v.playsInline = true; v.setAttribute('playsinline', ''); v.setAttribute('webkit-playsinline', '');
-  v.preload = 'auto'; v.crossOrigin = 'anonymous';
+  v.preload = 'auto'; v.crossOrigin = 'anonymous'; v.defaultPlaybackRate = SPEED; v.playbackRate = SPEED;
   const t = new THREE.VideoTexture(v); t.minFilter = THREE.LinearFilter; t.magFilter = THREE.LinearFilter; t.generateMipmaps = false;
   return { v, t };
 });
@@ -145,7 +146,7 @@ glints.frustumCulled = false; glints.renderOrder = 3; anchor.group.add(glints);
 // ---------- timeline: bloom (video) → rest, alive → settle back into the print → again ----------
 const c01 = x => Math.min(1, Math.max(0, x));
 const sine = x => .5 - .5 * Math.cos(Math.PI * x);
-const DUR = 8, HOLD = 8, SETTLE = 2.2, REST = 2.5, END = START[4] + DUR, LOOP = END + HOLD + SETTLE + REST;
+const DUR = 8 / SPEED, HOLD = 8, SETTLE = 2.2, REST = 2.5, END = START[4] + DUR, LOOP = END + HOLD + SETTLE + REST;
 let cycleStart = null;
 function startCycle(now) {
   cycleStart = now;
@@ -161,7 +162,7 @@ function update(now) {
   PU.uT.value = now / 1000; PU.uPx.value = renderer.domElement.height * .5; PU.uShow.value = sine(c01(t / 2)) * fadeOut;
   flowers.forEach((F, i) => {
     const lt = t - START[i];
-    if (lt >= 0 && !F.started) { F.started = true; const p = videos[i].v.play(); if (p) p.catch(() => {}); }
+    if (lt >= 0 && !F.started) { F.started = true; videos[i].v.playbackRate = SPEED; const p = videos[i].v.play(); if (p) p.catch(() => {}); }
     F.U.uA.value = sine(c01((lt + .3) / .6)) * fadeOut;
     const rest = c01((lt - DUR) / 1.5);
     F.U.uTime.value = now / 1000; F.U.uGlow.value = rest * fadeOut;
@@ -174,7 +175,7 @@ function update(now) {
 
 // ---------- UI ----------
 const tag = document.getElementById('tag');
-anchor.onTargetFound = () => { tag.textContent = 'TEMPUS FLORENS · ORCHIDACEAE'; if (cycleStart === null) startCycle(performance.now()); else videos.forEach(({ v }, i) => { if (flowers[i].started && v.paused && v.currentTime < DUR - .05) v.play().catch(() => {}); }); };
+anchor.onTargetFound = () => { tag.textContent = 'TEMPUS FLORENS · ORCHIDACEAE'; if (cycleStart === null) startCycle(performance.now()); else videos.forEach(({ v }, i) => { if (flowers[i].started && v.paused && !v.ended) { v.playbackRate = SPEED; v.play().catch(() => {}); } }); };
 anchor.onTargetLost = () => { tag.textContent = 'SEARCHING FOR THE POSTCARD'; };
 document.getElementById('replay').addEventListener('click', () => { if (cycleStart !== null) startCycle(performance.now()); });
 document.getElementById('go').addEventListener('click', async () => {
