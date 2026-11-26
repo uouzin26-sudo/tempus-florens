@@ -46,57 +46,40 @@ button:focus-visible { outline: 1px solid var(--ink); outline-offset: 3px; }
 import * as THREE from 'three';
 import { MindARThree } from 'mindar-image-three';
 
-// ---- postcard geometry (8000 × 5419 artwork; anchor width = 1) ----
+// ---------- look ----------
+const LOOK = {
+  body: [0.36, 0.38, 0.43],     // soft blurred bloom behind the glyphs
+  light: [0.98, 0.95, 0.86],    // drifting light inside the bloom
+  ink: [1.0, 0.99, 0.95],       // glyph colour
+  cols: 84,                     // glyph columns across the screen width
+};
+
+// ---------- postcard geometry (8000 × 5419 artwork; anchor width = 1) ----------
 const PW = 8000, PH = 5419, ASPECT = PH / PW;
-const BOX = [1443, 475, 6644, 4610];                       // printed dot-lily petal extent, px
+const BOX = [1443, 475, 6644, 4610];
 const toA = (px, py) => [px / PW - .5, (.5 - py / PH) * ASPECT];
 const [bx0, by1] = toA(BOX[0], BOX[1]), [bx1, by0] = toA(BOX[2], BOX[3]);
 const CENTER = [(bx0 + bx1) / 2, (by0 + by1) / 2];
 
-// ---- the lily (same petals as the printed graphic) ----
-const PHI = [], LEN = [], WID = [], OPEN = [];
-for (let k = 0; k < 6; k++) { const o = k % 2 === 0; PHI.push((k * 60 + 15) * Math.PI / 180); LEN.push(o ? 1.02 : .96); WID.push(o ? .36 : .47); OPEN.push(o ? .42 : .5); }
-const CUP = .32, CURL = -.38, ROUND = .85;
-function petal(u, v, k, theta) {
-  const w = Math.pow(Math.max(0, Math.sin(Math.PI * Math.pow(v, .62))), ROUND);
-  const x = u * WID[k] * .5 * w, y = v * LEN[k] + .04, z = CUP * u * u * w * WID[k] * .5 + CURL * v * v * LEN[k];
-  const ct = Math.cos(theta), st = Math.sin(theta), y1 = y * ct - z * st, z1 = y * st + z * ct;
-  const cp = Math.cos(PHI[k]), sp = Math.sin(PHI[k]); return [x * cp - y1 * sp, x * sp + y1 * cp, z1];
+// the lily — same petals as the printed graphic
+const OPEN = [], LEN = [], WID = [];
+for (let k = 0; k < 6; k++) { const o = k % 2 === 0; LEN.push(o ? 1.02 : .96); WID.push(o ? .36 : .47); OPEN.push(o ? .42 : .5); }
+function petalJS(u, v, k, th) {
+  const w = Math.pow(Math.max(0, Math.sin(Math.PI * Math.pow(v, .62))), .85);
+  const x = u * WID[k] * .5 * w, y = v * LEN[k] + .04, z = .32 * u * u * w * WID[k] * .5 - .38 * v * v * LEN[k];
+  const ct = Math.cos(th), st = Math.sin(th), y1 = y * ct - z * st, z1 = y * st + z * ct;
+  const ph = (k * 60 + 15) * Math.PI / 180, cp = Math.cos(ph), sp = Math.sin(ph); return [x * cp - y1 * sp, x * sp + y1 * cp, z1];
 }
-const TX = -.42, TZ = .18;   // the view the printed graphic was drawn from
-function printView(p) {
-  let [x, y, z] = p; const cx = Math.cos(TX), sx = Math.sin(TX), y1 = y * cx - z * sx;
-  const cz = Math.cos(TZ), sz = Math.sin(TZ); return [x * cz - y1 * sz, x * sz + y1 * cz];
-}
-let seed = 17;
-const rnd = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
-const gauss = () => (rnd() + rnd() + rnd() - 1.5) / 1.5;
-const bez = (a, m, c, t) => { const s = 1 - t; return a.map((_, i) => s * s * a[i] + 2 * s * t * m[i] + t * t * c[i]); };
-const STAM = []; for (let k = 0; k < 7; k++) { const a = k * Math.PI / 3 + .4, pist = k === 6; STAM.push(pist ? [.03, .06, .78] : [Math.cos(a) * .42, Math.sin(a) * .42, .58]); }
-
-const UV = [], PET = [], FLAT = [], TONE = [], RND = [];
-const NP = 36000, NS = 4200;
-for (let i = 0; i < NP; i++) {
-  const k = i % 6, r = rnd(), rim = r < .32, vein = r > .86;
-  const u = rim ? (rnd() < .5 ? -1 : 1) * (.93 + rnd() * .07) : vein ? gauss() * .025 : rnd() * 2 - 1;
-  const v = Math.pow(rnd(), .85);
-  UV.push(u, v); PET.push(k); TONE.push(rim ? 1 : vein ? .8 : .25 + .35 * Math.pow(v, .6) * rnd()); RND.push(rnd());
-  FLAT.push(...printView(petal(u, v, k, OPEN[k])));
-}
-for (let i = 0; i < NS; i++) {
-  const k = i % 7, t = rnd(); UV.push(k, t); PET.push(6 + k); TONE.push(.9); RND.push(rnd());
-  const tip = STAM[k], p = t < .82 ? bez([0, 0, .06], [tip[0] * .35, tip[1] * .35, .38], tip, t / .82) : [tip[0] + gauss() * .035, tip[1] + gauss() * .018, tip[2]];
-  FLAT.push(...printView(p));
-}
-// fit the flat (printed) silhouette onto the postcard's own lily
+const TX = -.42, TZ = .18;
+function printXY(p) { const [x, y, z] = p; const y1 = y * Math.cos(TX) - z * Math.sin(TX); return [x * Math.cos(TZ) - y1 * Math.sin(TZ), x * Math.sin(TZ) + y1 * Math.cos(TZ)]; }
 let fx0 = 1e9, fx1 = -1e9, fy0 = 1e9, fy1 = -1e9;
-for (let i = 0; i < FLAT.length; i += 2) { fx0 = Math.min(fx0, FLAT[i]); fx1 = Math.max(fx1, FLAT[i]); fy0 = Math.min(fy0, FLAT[i + 1]); fy1 = Math.max(fy1, FLAT[i + 1]); }
+for (let k = 0; k < 6; k++) for (let a = 0; a <= 40; a++) for (let b = 0; b <= 40; b++) {
+  const [x, y] = printXY(petalJS(a / 20 - 1, b / 40, k, OPEN[k])); fx0 = Math.min(fx0, x); fx1 = Math.max(fx1, x); fy0 = Math.min(fy0, y); fy1 = Math.max(fy1, y);
+}
 const S = Math.min((bx1 - bx0) / (fx1 - fx0), (by1 - by0) / (fy1 - fy0));
-const fcx = (fx0 + fx1) / 2, fcy = (fy0 + fy1) / 2;
-const flat3 = new Float32Array((NP + NS) * 3);
-for (let i = 0, j = 0; i < FLAT.length; i += 2, j += 3) { flat3[j] = (FLAT[i] - fcx) * S; flat3[j + 1] = (FLAT[i + 1] - fcy) * S; flat3[j + 2] = .002; }
+const FIT = new THREE.Vector3((fx0 + fx1) / 2, (fy0 + fy1) / 2, S);
 
-// ---- AR ----
+// ---------- AR ----------
 const mindar = new MindARThree({ container: document.getElementById('ar'), imageTargetSrc: './postcard.mind',
   uiScanning: 'no', uiLoading: 'yes', uiError: 'yes', filterMinCF: 0.0002, filterBeta: 0.005, warmupTolerance: 3, missTolerance: 45 });
 const { renderer, scene, camera } = mindar;
@@ -104,110 +87,208 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 const anchor = mindar.addAnchor(0);
 const root = new THREE.Group(); root.position.set(CENTER[0], CENTER[1], 0); anchor.group.add(root);
 
-const geo = new THREE.BufferGeometry();
-geo.setAttribute('position', new THREE.BufferAttribute(flat3, 3));
-geo.setAttribute('aUV', new THREE.Float32BufferAttribute(UV, 2));
-geo.setAttribute('aPet', new THREE.Float32BufferAttribute(PET, 1));
-geo.setAttribute('aTone', new THREE.Float32BufferAttribute(TONE, 1));
-geo.setAttribute('aR', new THREE.Float32BufferAttribute(RND, 1));
-geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 2);
+// petal surface mesh: one (u,v) grid per petal; the vertex shader does all the shaping
+const GU = 28, GV = 56, uv = [], pet = [], idx = [];
+for (let k = 0; k < 6; k++) {
+  const base = k * (GU + 1) * (GV + 1);
+  for (let j = 0; j <= GV; j++) for (let i = 0; i <= GU; i++) { uv.push(i / GU * 2 - 1, j / GV); pet.push(k); }
+  for (let j = 0; j < GV; j++) for (let i = 0; i < GU; i++) { const a = base + j * (GU + 1) + i, b = a + 1, c = a + GU + 1, d = c + 1; idx.push(a, c, b, b, c, d); }
+}
+const pg = new THREE.BufferGeometry();
+pg.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(uv.length / 2 * 3), 3));
+pg.setAttribute('aUV', new THREE.Float32BufferAttribute(uv, 2));
+pg.setAttribute('aPet', new THREE.Float32BufferAttribute(pet, 1));
+pg.setIndex(idx);
 
-const U = { uPeel: { value: new Array(6).fill(0) }, uBloom: { value: new Array(6).fill(0) }, uStam: { value: 0 }, uLift: { value: 0 },
-  uTime: { value: 0 }, uWave: { value: -1 }, uS: { value: S }, uVH: { value: innerHeight }, uShadow: { value: 0 }, uAlpha: { value: 0 } };
-const VERT = `
-  uniform float uPeel[6], uBloom[6], uStam, uLift, uTime, uWave, uS, uVH, uShadow;
-  attribute vec2 aUV; attribute float aPet, aTone, aR;
-  varying float vG, vA;
-  const float CUP = .32, CURL = -.38;
+const U = { uPeel: { value: new Array(6).fill(0) }, uBloom: { value: new Array(6).fill(0) }, uLift: { value: 0 }, uStam: { value: 0 },
+  uTime: { value: 0 }, uFit: { value: FIT }, uLight: { value: new THREE.Vector3(-.5, .6, .62).normalize() } };
+
+const LILY_COMMON = `
+  uniform float uPeel[6], uBloom[6], uLift, uTime; uniform vec3 uFit;
   float LENk(int k){ return (k == 0 || k == 2 || k == 4) ? 1.02 : .96; }
   float WIDk(int k){ return (k == 0 || k == 2 || k == 4) ? .36 : .47; }
   float OPNk(int k){ return (k == 0 || k == 2 || k == 4) ? .42 : .5; }
+  float peelOf(int k){ return k==0?uPeel[0]:k==1?uPeel[1]:k==2?uPeel[2]:k==3?uPeel[3]:k==4?uPeel[4]:uPeel[5]; }
+  float bloomOf(int k){ return k==0?uBloom[0]:k==1?uBloom[1]:k==2?uBloom[2]:k==3?uBloom[3]:k==4?uBloom[4]:uBloom[5]; }
   vec3 petal(float u, float v, int k, float th, float bl){
-    float w = pow(max(0., sin(3.14159265 * pow(v, .62))), .85);
-    float wd = WIDk(k) * mix(.62, 1., bl); float x = u * wd * .5 * w, y = v * LENk(k) * mix(.9, 1., bl) + .04, z = CUP * mix(1.6, 1., bl) * u * u * w * wd * .5 + mix(.06, CURL, bl * bl) * v * v * LENk(k);
+    float w = pow(max(0., sin(3.14159265 * pow(clamp(v, 0., 1.), .62))), .85);
+    float wd = WIDk(k) * mix(.62, 1., bl);
+    float x = u * wd * .5 * w, y = v * LENk(k) * mix(.9, 1., bl) + .04;
+    float z = .32 * mix(1.6, 1., bl) * u * u * w * wd * .5 + mix(.06, -.38, bl * bl) * v * v * LENk(k) + .018 * sin(u * 7. + v * 11. + uTime * .9) * v * bl;
     float ct = cos(th), st = sin(th); float y1 = y * ct - z * st, z1 = y * st + z * ct;
-    float ph = (float(k) * 60. + 15.) * 3.14159265 / 180.; float cp = cos(ph), sp = sin(ph);
+    float ph = (float(k) * 60. + 15.) * .01745329; float cp = cos(ph), sp = sin(ph);
     return vec3(x * cp - y1 * sp, x * sp + y1 * cp, z1);
   }
-  vec3 bz(vec3 a, vec3 m, vec3 c, float t){ float s = 1. - t; return s * s * a + 2. * s * t * m + t * t * c; }
-  void main(){
-    int k = int(aPet + .5);
-    vec3 fp = position, p3; float peel;
-    if (k < 6) {
-      float bl = uBloom[k];
-      float th = mix(1.38, OPNk(k), bl) + .035 * sin(uTime * 1.1 + float(k) * 1.7) * bl;   // bud -> open, then a slow breath
-      p3 = petal(aUV.x, aUV.y, k, th, bl) * uS;
-      peel = uPeel[k];
-      // a petal peels from its base outward, so the tip leaves the card last
-      peel = clamp(peel * 1.35 - (1. - aUV.y) * .0 - aUV.y * .35, 0., 1.);
-      peel = peel * peel * (3. - 2. * peel);
-    } else {
-      int s = k - 6; float ang = float(s) * 1.0471976 + .4;
-      vec3 tip = s == 6 ? vec3(.03, .06, .78) : vec3(cos(ang) * .42, sin(ang) * .42, .58);
-      float t = aUV.y, g = clamp(uStam * 1.25 - t * .25, 0., 1.);
-      vec3 q = t < .82 ? bz(vec3(0., 0., .06), vec3(tip.xy * .35, .38), tip, t / .82) : tip + (vec3(fract(aR * 13.7), fract(aR * 7.3), 0.) - .5) * vec3(.07, .036, .0);
-      p3 = mix(vec3(0., 0., .06), q, g) * uS;
-      peel = clamp(uPeel[0] * 1.2 - .2, 0., 1.);
-    }
-    p3.z += uLift;
-    vec3 p = mix(fp, p3, peel);
-    float tone = aTone;
-    if (uShadow > .5) { p = vec3(p.x + p.z * .55, p.y - p.z * .55, .001); }
-    vec4 mv = modelViewMatrix * vec4(p, 1.);
-    gl_Position = projectionMatrix * mv;
-    float sc = length(vec3(modelViewMatrix[0]));
-    gl_PointSize = clamp(.0026 * sc * (.85 + aR * .3) * projectionMatrix[1][1] * uVH * .5 / -mv.z, 1., 18.);
-    // light passes across the printed dots before they lift
-    float d = length(fp.xy) / (uS * 1.2);
-    float shine = exp(-pow((d - uWave) * 7., 2.));
-    vG = mix(.74, .34, tone) - shine * .25;
-    vA = uShadow > .5 ? .13 * peel : 1.;
+  vec2 printXY(vec3 p){ float y1 = p.y * cos(-.42) - p.z * sin(-.42); return vec2(p.x * cos(.18) - y1 * sin(.18), p.x * sin(.18) + y1 * cos(.18)); }
+  vec3 lilyP(float u, float v, int k){
+    float bl = bloomOf(k);
+    float th = mix(1.38, OPNk(k), bl) + .04 * sin(uTime * 1.05 + float(k) * 1.7) * bl;
+    vec3 p3 = petal(u, v, k, th, bl) * uFit.z * .82; p3.z += uLift;
+    vec3 fl = vec3((printXY(petal(u, v, k, OPNk(k), 1.)) - uFit.xy) * uFit.z, .002 + float(k - (k / 2) * 2) * .0012 + v * .0002);
+    float pe = clamp(peelOf(k) * 1.35 - v * .35, 0., 1.); pe = pe * pe * (3. - 2. * pe);
+    return mix(fl, p3, pe);
   }`;
-const FRAG = `
-  uniform float uAlpha, uShadow; varying float vG, vA;
-  void main(){ float d = length(gl_PointCoord - .5); if (d > .5) discard;
-    vec3 c = uShadow > .5 ? vec3(.2, .19, .18) : vec3(vG) * vec3(.97, .98, 1.04) * (1. - d * .35);
-    gl_FragColor = vec4(c, smoothstep(.5, .4, d) * vA * uAlpha); }`;
-const mk = shadow => new THREE.ShaderMaterial({ uniforms: { ...U, uShadow: { value: shadow ? 1 : 0 } }, vertexShader: VERT, fragmentShader: FRAG,
-  transparent: true, depthWrite: !shadow, depthTest: !shadow, blending: THREE.NormalBlending });
-const shadowPts = new THREE.Points(geo, mk(true)); shadowPts.renderOrder = 0; shadowPts.frustumCulled = false;
-const lily = new THREE.Points(geo, mk(false)); lily.renderOrder = 1; lily.frustumCulled = false;
-root.add(lily);
-// share uniform values between both materials
-for (const m of [shadowPts.material, lily.material]) for (const key in U) if (key !== 'uShadow') m.uniforms[key] = U[key];
+const lilyMat = new THREE.ShaderMaterial({ uniforms: U, side: THREE.DoubleSide,
+  vertexShader: LILY_COMMON + `
+    attribute vec2 aUV; attribute float aPet; varying vec3 vN, vV; varying vec2 vUV;
+    void main(){
+      int k = int(aPet + .5); float u = aUV.x, v = aUV.y, e = .012;
+      vec3 p = lilyP(u, v, k);
+      vec3 du = lilyP(u + e, v, k) - lilyP(u - e, v, k), dv = lilyP(u, v + e, k) - lilyP(u, max(v - e, 0.), k);
+      vN = normalize(normalMatrix * cross(du, dv));
+      vec4 mv = modelViewMatrix * vec4(p, 1.); vV = -mv.xyz; vUV = aUV;
+      gl_Position = projectionMatrix * mv;
+    }`,
+  fragmentShader: `
+    uniform vec3 uLight; uniform float uTime; varying vec3 vN, vV; varying vec2 vUV;
+    void main(){
+      vec3 V = normalize(vV), n = normalize(vN); if (dot(n, V) < 0.) n = -n;
+      float dif = max(dot(n, uLight), 0.), rim = pow(1. - max(dot(n, V), 0.), 2.);
+      float L = .14 + .72 * dif + .3 * rim;
+      L *= .45 + .55 * smoothstep(.0, .3, vUV.y);                                  // dark throat
+      L += .16 * exp(-vUV.x * vUV.x * 260.) * smoothstep(.05, .3, vUV.y);           // midrib
+      L += .1 * smoothstep(.85, .98, abs(vUV.x));                                   // bright rims
+      L *= .9 + .1 * sin(vUV.y * 40. + vUV.x * 6.);                                 // faint ribbing
+      gl_FragColor = vec4(clamp(L, 0., 1.), 1., 0., 1.);
+    }` });
+const lilyMesh = new THREE.Mesh(pg, lilyMat); lilyMesh.frustumCulled = false; root.add(lilyMesh);
 
-// ---- timeline (loops) ----
+// stamens & pistil as bright points
+const sp = [], st = []; let seed = 7; const rnd = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+for (let k = 0; k < 7; k++) for (let j = 0; j < 260; j++) { sp.push(k, rnd(), rnd()); }
+const sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3));
+const stamMat = new THREE.ShaderMaterial({ uniforms: { ...U, uPx: { value: 6 } },
+  vertexShader: `uniform float uStam, uLift, uPx; uniform vec3 uFit;
+    vec3 bz(vec3 a, vec3 m, vec3 c, float t){ float s = 1. - t; return s * s * a + 2. * s * t * m + t * t * c; }
+    varying float vL;
+    void main(){
+      int s = int(position.x + .5); float t = position.y, ang = float(s) * 1.0471976 + .4;
+      vec3 tip = s == 6 ? vec3(.03, .06, .78) : vec3(cos(ang) * .42, sin(ang) * .42, .58);
+      bool head = t > .8; vec3 q = head ? tip + (vec3(position.z, fract(position.z * 7.3), fract(position.z * 3.1)) - .5) * vec3(.08, .04, .03) : bz(vec3(0., 0., .06), vec3(tip.xy * .35, .38), tip, t / .8);
+      float g = clamp(uStam * 1.3 - t * .3, 0., 1.);
+      vec3 p = mix(vec3(0., 0., .06), q, g) * uFit.z * .82; p.z += uLift;
+      vL = head ? .95 : .7;
+      vec4 mv = modelViewMatrix * vec4(p, 1.); gl_Position = projectionMatrix * mv;
+      gl_PointSize = uStam > .02 ? uPx * (head ? 1.6 : 1.) : 0.;
+    }`,
+  fragmentShader: `varying float vL; void main(){ if (length(gl_PointCoord - .5) > .5) discard; gl_FragColor = vec4(vL, 1., 0., 1.); }` });
+for (const key in U) stamMat.uniforms[key] = U[key];
+const stam = new THREE.Points(sg, stamMat); stam.frustumCulled = false; root.add(stam);
+
+// ---------- glyph post-process ----------
+let rtLily = null, rtBlur = null; const buf = new THREE.Vector2();
+const post = new THREE.Scene(), ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2)); post.add(quad);
+const QV = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0., 1.); }`;
+const downMat = new THREE.ShaderMaterial({ uniforms: { tSrc: { value: null }, uTx: { value: new THREE.Vector2() } }, vertexShader: QV,
+  fragmentShader: `uniform sampler2D tSrc; uniform vec2 uTx; varying vec2 vUv;
+    void main(){ vec4 a = vec4(0.); for (int i = -2; i <= 2; i++) for (int j = -2; j <= 2; j++) a += texture2D(tSrc, vUv + vec2(float(i), float(j)) * uTx * 1.6); gl_FragColor = a / 25.; }` });
+const glyphMat = new THREE.ShaderMaterial({ blending: THREE.NoBlending, depthTest: false, depthWrite: false,
+  uniforms: { tLily: { value: null }, tBlur: { value: null }, uRes: { value: new THREE.Vector2() }, uBTx: { value: new THREE.Vector2() }, uCell: { value: 12 },
+    uTime: { value: 0 }, uAlpha: { value: 0 }, uBody: { value: new THREE.Vector3(...LOOK.body) }, uLightC: { value: new THREE.Vector3(...LOOK.light) },
+    uInk: { value: new THREE.Vector3(...LOOK.ink) }, uSpot: { value: new THREE.Vector2(.4, .5) } },
+  vertexShader: QV,
+  fragmentShader: `
+    uniform sampler2D tLily, tBlur; uniform vec2 uRes, uBTx, uSpot; uniform float uCell, uTime, uAlpha; uniform vec3 uBody, uLightC, uInk;
+    varying vec2 vUv;
+    float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+    float box(vec2 f, vec2 c, vec2 h, float aa){ vec2 d = abs(f - c) - h; return 1. - smoothstep(-aa, aa, max(d.x, d.y)); }
+    float ring(vec2 f, vec2 h, float r, float w, float aa){ vec2 q = abs(f - .5) - h + r; float d = length(max(q, 0.)) + min(max(q.x, q.y), 0.) - r; return 1. - smoothstep(w - aa, w + aa, abs(d)); }
+    void main(){
+      vec2 px = gl_FragCoord.xy, cell = floor(px / uCell), f = fract(px / uCell);
+      vec2 tx = uCell / uRes, cuv = (cell + .5) * tx;
+      vec4 c = texture2D(tLily, cuv);
+      float cov = c.g, L = c.r, aa = 1.1 / uCell;
+      float h = hash(cell), tick = floor(uTime * 4. + h * 9.), h2 = hash(cell + tick * 1.37);
+      float g = 0.;
+      if (cov > .5) {
+        float edge = step(min(min(texture2D(tLily, cuv - vec2(tx.x, 0.)).g, texture2D(tLily, cuv + vec2(tx.x, 0.)).g),
+                              min(texture2D(tLily, cuv - vec2(0., tx.y)).g, texture2D(tLily, cuv + vec2(0., tx.y)).g)), .5);
+        float l = L + (h2 - .5) * .16;
+        float hd = box(f, vec2(.5), vec2(.52, .1), aa);                 // horizontal dash, joins its neighbours
+        float vb = box(f, vec2(.5), vec2(.11, .32), aa);                   // vertical tick
+        float dt = box(f, vec2(.5), vec2(.12, .18), aa);                  // small dot
+        float pl = max(box(f, vec2(.5), vec2(.42, .065), aa), box(f, vec2(.5), vec2(.065, .42), aa));
+        float cp = max(ring(f, vec2(.44, .2), .2, .06, aa), box(f, vec2(.5), vec2(.52, .06), aa) * step(.5, h));
+        if (edge > .5 && h > .3) g = pl;
+        else if (l < .2) g = h2 > .55 ? dt * .8 : 0.;
+        else if (l < .38) g = dt;
+        else if (l < .56) g = h2 > .25 ? vb : dt;
+        else if (l < .76) g = h2 > .15 ? hd : vb;
+        else g = h2 > .62 ? cp : h2 > .3 ? hd : pl;
+        g *= smoothstep(.12, .3, L) * .35 + .65;
+      }
+      // soft bloom body behind the glyphs
+      vec2 b = uBTx * 2.2; vec4 bl = vec4(0.);
+      for (int i = -2; i <= 2; i++) for (int j = -2; j <= 2; j++) bl += texture2D(tBlur, vUv + vec2(float(i), float(j)) * b);
+      bl /= 25.;
+      float body = smoothstep(.08, .75, bl.g);
+      float spot = exp(-dot(vUv - uSpot, (vUv - uSpot) * vec2(uRes.x / uRes.y, uRes.y / uRes.x)) * 9.);
+      float lb = clamp(bl.r / max(bl.g, .01), 0., 1.);
+      vec3 bc = mix(uBody * .45, uBody * 1.55 + .08, smoothstep(.15, .85, lb));
+      bc = mix(bc, uLightC * .9, spot * .4 * body);
+      float ba = body * (.82 + .12 * spot);
+      vec3 col = mix(bc, mix(uInk * .72, uInk, smoothstep(.3, .7, L)), g);
+      float a = max(ba, g * .97) * uAlpha;
+      gl_FragColor = vec4(col * a, a);
+    }` });
+
+function ensureTargets() {
+  renderer.getDrawingBufferSize(buf);
+  const w = Math.max(2, buf.x | 0), h = Math.max(2, buf.y | 0);
+  if (rtLily && rtLily.width === w && rtLily.height === h) return;
+  rtLily?.dispose(); rtBlur?.dispose();
+  const opt = { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter };
+  rtLily = new THREE.WebGLRenderTarget(w, h, { ...opt, depthBuffer: true });
+  rtBlur = new THREE.WebGLRenderTarget(Math.ceil(w / 8), Math.ceil(h / 8), { ...opt, depthBuffer: false });
+  const cell = Math.max(7, Math.round(Math.min(w, h * .75) / LOOK.cols));
+  glyphMat.uniforms.uRes.value.set(w, h); glyphMat.uniforms.uCell.value = cell;
+  glyphMat.uniforms.uBTx.value.set(1 / rtBlur.width, 1 / rtBlur.height);
+  downMat.uniforms.uTx.value.set(1 / w, 1 / h);
+  stamMat.uniforms.uPx.value = cell * .55;
+}
+function renderFrame() {
+  ensureTargets();
+  const ac = renderer.getClearAlpha(); renderer.setClearColor(0x000000, 0);
+  renderer.setRenderTarget(rtLily); renderer.clear(); renderer.render(scene, camera);
+  quad.material = downMat; downMat.uniforms.tSrc.value = rtLily.texture;
+  renderer.setRenderTarget(rtBlur); renderer.clear(); renderer.render(post, ortho);
+  quad.material = glyphMat; glyphMat.uniforms.tLily.value = rtLily.texture; glyphMat.uniforms.tBlur.value = rtBlur.texture;
+  renderer.setRenderTarget(null); renderer.clear(); renderer.render(post, ortho);
+  renderer.setClearColor(0x000000, ac);
+}
+
+// ---------- timeline (loops) ----------
 const ease = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
-const back = x => { const c1 = 1.25, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); };
+const back = x => { const c1 = 1.2, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); };
 const c01 = x => Math.min(1, Math.max(0, x));
-const LOOP = 14.5;
-const ORDER = [0, 3, 1, 4, 2, 5];      // alternate sides so the unfolding feels balanced
+const LOOP = 15;
+const ORDER = [0, 3, 1, 4, 2, 5];
 function update(T0) {
   const T = T0 % LOOP;
-  U.uTime.value = T0;
-  U.uAlpha.value = c01(T0 / .4);
-  U.uWave.value = T < 1.2 ? -.2 + T / 1.2 * 1.4 : -1;
-  const close = c01((T - 10.6) / 1.2);           // 10.6–11.8 petals fold back to a bud
-  const lay = c01((T - 11.8) / 1.5);             // 11.8–13.3 and lie back down on the card
+  U.uTime.value = T0; glyphMat.uniforms.uTime.value = T0;
+  glyphMat.uniforms.uAlpha.value = c01(T0 / .6);
+  const close = c01((T - 11.2) / 1.2), lay = c01((T - 12.3) / 1.6);
   for (let j = 0; j < 6; j++) {
     const k = ORDER[j];
-    const up = ease(c01((T - 1.1 - j * .17) / 1.15));
-    const open = back(c01((T - 2.9 - j * .1) / 1.7));
+    const up = ease(c01((T - 1.0 - j * .18) / 1.2));
+    const open = back(c01((T - 2.8 - j * .11) / 1.8));
     U.uPeel.value[k] = up * (1 - ease(c01(lay * 1.15 - (5 - j) * .03)));
     U.uBloom.value[k] = open * (1 - ease(close));
   }
-  U.uStam.value = ease(c01((T - 3.7) / 1.3)) * (1 - ease(c01((T - 10.4) / .8)));
-  U.uLift.value = .09 * ease(c01((T - 1.1) / 1.6)) * (1 - ease(lay));
-  root.rotation.z = .05 * Math.sin(T0 * .35) * c01((T - 4) / 2) * (1 - lay);
+  U.uStam.value = ease(c01((T - 3.7) / 1.4)) * (1 - ease(c01((T - 11) / .8)));
+  U.uLift.value = .09 * ease(c01((T - 1.0) / 1.7)) * (1 - ease(lay));
+  root.rotation.z = .06 * Math.sin(T0 * .33) * c01((T - 4) / 2) * (1 - lay);
+  // the light slowly circles the flower, so the glyph field keeps shifting
+  const a = T0 * .45; U.uLight.value.set(Math.cos(a) * .7, Math.sin(a) * .7, .55).normalize();
+  glyphMat.uniforms.uSpot.value.set(.5 + .22 * Math.cos(a * .8 + 2), .5 + .16 * Math.sin(a * .8 + 2));
 }
 
-// ---- UI ----
+// ---------- UI ----------
 const tag = document.getElementById('tag');
-let tStart = null, tracking = false;
-anchor.onTargetFound = () => { tracking = true; if (tStart === null) tStart = performance.now(); tag.textContent = 'TEMPUS FLORENS · LILIUM'; };
-anchor.onTargetLost = () => { tracking = false; tag.textContent = 'SEARCHING FOR THE POSTCARD'; };
+let tStart = null;
+anchor.onTargetFound = () => { if (tStart === null) tStart = performance.now(); tag.textContent = 'TEMPUS FLORENS · LILIUM'; };
+anchor.onTargetLost = () => { tag.textContent = 'SEARCHING FOR THE POSTCARD'; };
 document.getElementById('replay').addEventListener('click', () => { if (tStart !== null) tStart = performance.now(); });
-addEventListener('resize', () => { U.uVH.value = innerHeight * renderer.getPixelRatio(); });
 document.getElementById('go').addEventListener('click', async () => {
   const err = document.getElementById('err'), go = document.getElementById('go');
   try {
@@ -215,12 +296,8 @@ document.getElementById('go').addEventListener('click', async () => {
     if (!chk.ok) { err.hidden = false; err.textContent = 'postcard.mind not found — upload it next to postcard.html.'; return; }
     go.textContent = 'Opening…';
     await mindar.start();
-    U.uVH.value = innerHeight * renderer.getPixelRatio();
     document.getElementById('intro').hidden = true; tag.hidden = false; document.getElementById('dock').hidden = false;
-    renderer.setAnimationLoop(() => {
-      if (tStart !== null) update((performance.now() - tStart) / 1000);
-      renderer.render(scene, camera);
-    });
+    renderer.setAnimationLoop(() => { if (tStart !== null) update((performance.now() - tStart) / 1000); renderFrame(); });
   } catch (e) {
     go.textContent = 'Open camera'; err.hidden = false; err.textContent = 'Camera unavailable. Allow camera access, then reload.'; console.error(e);
   }
