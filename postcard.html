@@ -165,7 +165,8 @@ const FRAG = `
   }`;
 
 // a soft paper plate hides the printed orchids once the real ones rise off the card
-const plateTex = new THREE.TextureLoader().load('./plate.png');
+let plateOK = false;
+const plateTex = new THREE.TextureLoader().load('./plate.png', () => { plateOK = true; }, undefined, () => {});
 const plateU = { tMap: { value: plateTex }, uShow: { value: 0 } };
 const plate = new THREE.Mesh(new THREE.PlaneGeometry(1, 460 / CW), new THREE.ShaderMaterial({ uniforms: plateU, transparent: true, depthWrite: false,
   vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`,
@@ -250,7 +251,7 @@ const sine = x => .5 - .5 * Math.cos(Math.PI * x);
 const c01 = x => Math.min(1, Math.max(0, x));
 function update(t) {
   PU.uPx.value = renderer.domElement.height * .5; PU.uT.value = t; PU.uShow.value = c01(t / 3);
-  plateU.uShow.value = Math.max(...groups.map(G => G.uni.uE.value));
+  plateU.uShow.value = plateOK ? Math.max(...groups.map(G => G.uni.uE.value)) : 0;
   groups.forEach((G, i) => {
     const u = G.uni, start = .5 + i * .45;
     const e = sine(c01((t - start) / 2.2));                  // each orchid rises gently off the print in turn
@@ -296,7 +297,7 @@ document.getElementById('replay').addEventListener('click', () => { if (tStart !
 document.getElementById('go').addEventListener('click', async () => {
   const err = document.getElementById('err'), go = document.getElementById('go');
   try {
-    for (const f of ['./postcard.mind', './orchids.png', './plate.png']) {
+    for (const f of ['./postcard.mind', './orchids.png']) {
       const chk = await fetch(f, { method: 'HEAD', cache: 'no-store' });
       if (!chk.ok) { err.hidden = false; err.textContent = f.slice(2) + ' not found — upload it next to postcard.html.'; return; }
     }
@@ -305,7 +306,11 @@ document.getElementById('go').addEventListener('click', async () => {
     document.getElementById('intro').hidden = true; tag.hidden = false; document.getElementById('dock').hidden = false;
     renderer.setAnimationLoop(() => { update(tStart === null ? 0 : (performance.now() - tStart) / 1000); renderer.render(scene, camera); });
   } catch (e) {
-    go.textContent = 'Open camera'; err.hidden = false; err.textContent = 'Camera unavailable. Allow camera access, then reload.'; console.error(e);
+    go.textContent = 'Open camera'; err.hidden = false; console.error(e);
+    const inApp = /KAKAOTALK|NAVER|Instagram|FBAN|FBAV|Line\//i.test(navigator.userAgent);
+    err.textContent = inApp ? 'This in-app browser blocks the camera. Open the link in Safari or Chrome.'
+      : (e && e.name === 'NotAllowedError') ? 'Camera access was denied. Allow it in your browser settings, then reload.'
+      : 'Camera could not start (' + ((e && (e.name || e.message)) || 'unknown') + '). Try Safari or Chrome, then reload.';
   }
 });
 </script>
